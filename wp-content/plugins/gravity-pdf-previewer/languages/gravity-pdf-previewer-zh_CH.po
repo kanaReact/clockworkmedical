@@ -1,0 +1,418 @@
+# Copyright (C) 2023 Gravity PDF Previewer
+# This file is distributed under the same license as the Gravity PDF Previewer package.
+msgid ""
+msgstr ""
+"Project-Id-Version: Gravity PDF Previewer\n"
+"POT-Creation-Date: 2024-10-02 04:07+0000\n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: zh\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Poedit-Basepath: ..\n"
+"X-Poedit-KeywordsList: __;_e;_ex:1,2c;_n:1,2;_n_noop:1,2;_nx:1,2,4c;"
+"_nx_noop:1,2,3c;_x:1,2c;esc_attr__;esc_attr_e;esc_attr_x:1,2c;esc_html__;"
+"esc_html_e;esc_html_x:1,2c\n"
+"X-Poedit-SourceCharset: UTF-8\n"
+"X-Generator: Poedit 3.5\n"
+"X-Poedit-SearchPath-0: .\n"
+"X-Poedit-SearchPathExcluded-0: *.js\n"
+
+#: ../gravity-pdf-previewer.php:98, ../gravity-pdf-previewer.php:98
+msgid ""
+"Gravity PDF Version %s or higher is required to use this add-on. Please "
+"install/upgrade Gravity PDF to the latest version."
+msgstr ""
+"使用此附加组件需要Gravity PDF版本%s或更高版本。请安装/升级Gravity PDF到最新版"
+"本。"
+
+#: ../gravity-pdf-previewer.php:112, ../gravity-pdf-previewer.php:112
+msgid "Gravity PDF Previewer Installation Problem"
+msgstr "Gravity PDF预览器的安装问题"
+
+#: ../gravity-pdf-previewer.php:115, ../gravity-pdf-previewer.php:115
+msgid ""
+"The minimum requirements for the Gravity PDF Previewer plugin have not been "
+"met. Please fix the issue(s) below to continue:"
+msgstr ""
+"Gravity PDF Previewer插件的最低要求没有得到满足。请修复下面的问题以继续。"
+
+#: ../src/Field/GFormFieldPreviewer.php:78,
+#: ../src/Field/RegisterPreviewerCustomFields.php:306
+msgid "PDF Preview"
+msgstr "PDF 预览版"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:80,
+#: ../src/Field/markup/pdf-selector-setting.php:3
+msgid "PDF to Preview"
+msgstr "PDF转预览"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:80
+msgid ""
+"Select one of the active PDFs you want the end-user to preview before the "
+"form is submitted."
+msgstr "选择一个你希望最终用户在提交表格前预览的活动PDF。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:81,
+#: ../src/Field/markup/pdf-theme-setting.php:3
+msgid "Design"
+msgstr "设计"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:81
+msgid ""
+"Select a light or dark appearance for the PDF Viewer, or set to automatic to "
+"use the device default."
+msgstr "为PDF浏览器选择一个浅色或深色的外观，或设置为自动以使用设备默认值。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:82,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:3
+msgid "Zoom Level"
+msgstr "缩放级别"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:82
+msgid ""
+"Control the default zoom level of the Viewer. Page Width sets the zoom level "
+"of the PDF to the container width. Page Fit will show the entire first page "
+"in the Viewer. Actual Size is an alias for 100%."
+msgstr ""
+"控制查看器的默认缩放级别。Page Width将PDF的缩放级别设置为容器的宽度。Page Fit"
+"将在查看器中显示整个第一页。实际尺寸是100%的一个别名。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:83,
+#: ../src/Field/markup/pdf-page-scrolling-setting.php:3
+msgid "Page Scrolling"
+msgstr "页面滚动"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:83
+msgid "Display the pages of a PDF vertically or horizontally in the Viewer."
+msgstr "在浏览器中垂直或水平地显示PDF的页面。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:84,
+#: ../src/Field/markup/pdf-spread-setting.php:3
+msgid "Page Spread"
+msgstr "分页"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:84
+msgid ""
+"When enabled, the PDF pages are displayed side-by-side like a book. Choosing "
+"an Odd Spread begins page 1 on the left and page 2 on the right. An Even "
+"Spread begins with page 2 on the left and page 3 the right. This format "
+"continues until all pages are displayed."
+msgstr ""
+"启用后，PDF页面会像书一样并排显示。选择奇数展开时，第1页在左边，第2页在右边。"
+"偶数展页则从左边的第2页和右边的第3页开始。这种格式一直持续到显示完所有页面。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:85,
+#: ../src/Field/markup/preview-height-setting.php:3
+msgid "Preview Height"
+msgstr "预览高度"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:85
+msgid "Set the height of the Viewer container (in pixels)."
+msgstr "设置Viewer容器的高度（单位：像素）。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:86,
+#: ../src/Field/markup/pdf-watermark-setting.php:2
+msgid "Watermark"
+msgstr "水印"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:86
+msgid ""
+"Add a diagonal text-based watermark to each page of the PDF and control the "
+"font type used."
+msgstr "在PDF的每一页上添加一个对角线的基于文本的水印，并控制使用的字体类型。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:87
+msgid "Right-Click Protection"
+msgstr "右键保护"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:87
+msgid ""
+"By default users cannot right click on PDF pages to access the context menu. "
+"This prevents users saving a page as an image, which some browsers support. "
+"Enabling this option turns off this protection."
+msgstr ""
+"默认情况下，用户不能在PDF页面上点击右键来访问上下文菜单。这使得用户无法将页面"
+"保存为图像，而有些浏览器支持这种方式。启用该选项可以关闭这种保护。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:88
+msgid "Text-Copying Protection"
+msgstr "文本复制保护"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:88
+msgid ""
+"By default users cannot copy any text on PDF pages. Enable this option to "
+"render the text in the DOM, making it selectable for users and providing "
+"better accessibility for Screen Readers."
+msgstr ""
+"默认情况下，用户不能复制PDF页面上的任何文本。启用该选项可以在DOM中呈现文本，"
+"使用户可以选择，并为读屏器提供更好的可访问性。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:89
+msgid "Automatic Refresh"
+msgstr "自动刷新"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:89
+msgid ""
+"The PDF preview automatically refreshes when form changes are made, and the "
+"viewer is visible. Depending on the hosting provider, and size of the PDF, "
+"refreshing automatically may put too much strain on the server. Enable this "
+"option turns off this feature."
+msgstr ""
+"表格更改时，PDF 预览会自动刷新，并且查看器是可见的。根据托管提供商和 PDF 大小"
+"的不同，自动刷新可能会对服务器造成太大压力。启用此选项可关闭此功能。"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:308
+msgid "SAMPLE"
+msgstr "样品"
+
+#: ../src/Field/RegisterPreviewerField.php:100
+msgid "Loading spinner"
+msgstr "加载微调器"
+
+#: ../src/Field/RegisterPreviewerField.php:101,
+#: ../src/Field/RegisterPreviewerField.php:125,
+#: ../src/Field/markup/pdf-refresh-setting.php:2,
+#: ../src/Field/markup/previewer-placeholder.php:83,
+#: ../src/Field/markup/previewer-placeholder.php:84
+msgid "Refresh"
+msgstr "刷新"
+
+#: ../src/Field/RegisterPreviewerField.php:102
+msgid "Loading PDF Preview"
+msgstr "加载PDF预览"
+
+#: ../src/Field/RegisterPreviewerField.php:103
+msgid "Loading…"
+msgstr "载入中…"
+
+#: ../src/Field/RegisterPreviewerField.php:104
+msgid "There was a problem loading the preview."
+msgstr "在加载预览时出现了问题。"
+
+#: ../src/Field/RegisterPreviewerField.php:106,
+#: ../src/Field/markup/previewer-placeholder.php:60,
+#: ../src/Field/markup/previewer-placeholder.php:61
+msgid "Previous Page"
+msgstr "上一页"
+
+#: ../src/Field/RegisterPreviewerField.php:107,
+#: ../src/Field/markup/previewer-placeholder.php:66,
+#: ../src/Field/markup/previewer-placeholder.php:67
+msgid "Next Page"
+msgstr "下一页"
+
+#: ../src/Field/RegisterPreviewerField.php:108,
+#: ../src/Field/markup/previewer-placeholder.php:71,
+#: ../src/Field/markup/previewer-placeholder.php:72
+msgid "Set Page Number. Maximum value %s"
+msgstr "设置页数。最大值 [0］"
+
+#: ../src/Field/RegisterPreviewerField.php:109
+msgid "of %s"
+msgstr "之 %s"
+
+#: ../src/Field/RegisterPreviewerField.php:110,
+#: ../src/Field/markup/previewer-placeholder.php:91,
+#: ../src/Field/markup/previewer-placeholder.php:92
+msgid "Zoom Out"
+msgstr "缩小"
+
+#: ../src/Field/RegisterPreviewerField.php:111,
+#: ../src/Field/markup/previewer-placeholder.php:97,
+#: ../src/Field/markup/previewer-placeholder.php:98
+msgid "Zoom In"
+msgstr "放大"
+
+#: ../src/Field/RegisterPreviewerField.php:112,
+#: ../src/Field/markup/previewer-placeholder.php:103
+msgid "Zoom level"
+msgstr "缩放级别"
+
+#: ../src/Field/RegisterPreviewerField.php:113,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:10,
+#: ../src/Field/markup/previewer-placeholder.php:104
+msgid "Actual Size"
+msgstr "实际大小"
+
+#: ../src/Field/RegisterPreviewerField.php:114,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:9,
+#: ../src/Field/markup/previewer-placeholder.php:105
+msgid "Page Fit"
+msgstr "页面拟合"
+
+#: ../src/Field/RegisterPreviewerField.php:115,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:8,
+#: ../src/Field/markup/previewer-placeholder.php:106
+msgid "Page Width"
+msgstr "页面宽度"
+
+#: ../src/Field/RegisterPreviewerField.php:116,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:11,
+#: ../src/Field/markup/previewer-placeholder.php:107
+msgid "50%"
+msgstr "50%"
+
+#: ../src/Field/RegisterPreviewerField.php:117,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:12,
+#: ../src/Field/markup/previewer-placeholder.php:108
+msgid "75%"
+msgstr "75%"
+
+#: ../src/Field/RegisterPreviewerField.php:118,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:13,
+#: ../src/Field/markup/previewer-placeholder.php:109
+msgid "100%"
+msgstr "100%"
+
+#: ../src/Field/RegisterPreviewerField.php:119,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:14,
+#: ../src/Field/markup/previewer-placeholder.php:110
+msgid "125%"
+msgstr "125%"
+
+#: ../src/Field/RegisterPreviewerField.php:120,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:15,
+#: ../src/Field/markup/previewer-placeholder.php:111
+msgid "150%"
+msgstr "150%"
+
+#: ../src/Field/RegisterPreviewerField.php:121,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:16,
+#: ../src/Field/markup/previewer-placeholder.php:112
+msgid "200%"
+msgstr "200%"
+
+#: ../src/Field/RegisterPreviewerField.php:122,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:17,
+#: ../src/Field/markup/previewer-placeholder.php:113
+msgid "300%"
+msgstr "300"
+
+#: ../src/Field/RegisterPreviewerField.php:123,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:18,
+#: ../src/Field/markup/previewer-placeholder.php:114
+msgid "400%"
+msgstr "400"
+
+#: ../src/Field/RegisterPreviewerField.php:124,
+#: ../src/Field/markup/previewer-placeholder.php:79,
+#: ../src/Field/markup/previewer-placeholder.php:80
+msgid "Download"
+msgstr "下载"
+
+#: ../src/Field/RegisterPreviewerField.php:126
+msgid "PDF Page %s"
+msgstr "PDF页面 %s"
+
+#: ../src/Field/RegisterPreviewerField.php:127
+msgid "Inline PDF Viewer"
+msgstr "内联PDF浏览器"
+
+#: ../src/Field/markup/pdf-download-setting.php:2
+msgid "Download Preview"
+msgstr "下载预览"
+
+#: ../src/Field/markup/pdf-download-setting.php:8
+msgid "Allow a user to download the PDF"
+msgstr "允许用户下载PDF文件"
+
+#: ../src/Field/markup/pdf-page-scrolling-setting.php:8
+msgid "Vertical"
+msgstr "垂直"
+
+#: ../src/Field/markup/pdf-page-scrolling-setting.php:9
+msgid "Horizontal"
+msgstr "水平翻转"
+
+#: ../src/Field/markup/pdf-refresh-setting.php:9
+msgid "Disable automatic refresh"
+msgstr "禁用自动刷新"
+
+#: ../src/Field/markup/pdf-security-setting.php:2
+msgid "Security"
+msgstr "安全"
+
+#: ../src/Field/markup/pdf-security-setting.php:10
+msgid "Disable right-click protection"
+msgstr "禁用右键点击保护"
+
+#: ../src/Field/markup/pdf-security-setting.php:21
+msgid "Disable text-copying protection"
+msgstr "禁用文本复制保护"
+
+#: ../src/Field/markup/pdf-selector-setting.php:19
+msgid ""
+"To use this field you %1$sneed to create/active a PDF for this form%2$s."
+msgstr "要使用这个字段，你%1$s需要为这个表格创建/激活一个PDF%2$s。"
+
+#: ../src/Field/markup/pdf-spread-setting.php:8
+msgid "No Spread"
+msgstr "无扩散"
+
+#: ../src/Field/markup/pdf-spread-setting.php:9
+msgid "Odd Spread"
+msgstr "奇异的传播"
+
+#: ../src/Field/markup/pdf-spread-setting.php:10
+msgid "Even Spread"
+msgstr "均匀分布"
+
+#: ../src/Field/markup/pdf-theme-setting.php:8
+msgid "Automatic"
+msgstr "自动"
+
+#: ../src/Field/markup/pdf-theme-setting.php:9
+msgid "Light"
+msgstr "亮"
+
+#: ../src/Field/markup/pdf-theme-setting.php:10
+msgid "Dark"
+msgstr "暗"
+
+#: ../src/Field/markup/pdf-watermark-setting.php:8
+msgid "Enable a text watermark in the PDF"
+msgstr "在PDF中启用一个文本水印"
+
+#: ../src/Field/markup/pdf-watermark-setting.php:15
+msgid "Watermark Text"
+msgstr "文本水印"
+
+#: ../src/Field/markup/pdf-watermark-setting.php:24
+msgid "Watermark Font"
+msgstr "水印字体"
+
+#: ../src/Field/markup/previewer-placeholder.php:52
+msgid "A preview of the Gravity PDF document viewer"
+msgstr "Gravity PDF 文档查看器预览"
+
+#: ../src/Field/markup/previewer-placeholder.php:130
+msgid "Page %s"
+msgstr "页面 %s"
+
+#: ../src/Field/markup/previewer-placeholder.php:133
+msgid "Gravity PDF"
+msgstr "Gravity PDF"
+
+#: ../src/Field/markup/previewer-placeholder.php:137
+msgid "Previewer Field Example"
+msgstr "预览器字段示例"
+
+#: ../src/Field/markup/previewer-placeholder.php:141
+msgid ""
+"This is a content placeholder. The paper size, orientation, fonts, "
+"watermark, and layout will vary (as defined in your PDF settings)."
+msgstr ""
+"这是内容占位符。纸张大小、方向、字体、水印和布局会有所不同（在 PDF 设置中定"
+"义）。"
+
+#~ msgid "PDF Document"
+#~ msgstr "PDF 文档"
+
+#~ msgid ""
+#~ "This is a content placeholder. The PDF Preview is not displayed in the "
+#~ "form admin. View the form to preview the PDF."
+#~ msgstr "这是一个内容占位符。PDF预览不显示在表单管理中。查看表格以预览PDF。"

@@ -1,0 +1,31 @@
+span.ags-xoiwcp-drag-drop {
+  content: url(../images/drag-and-drop.svg);
+  display: block;
+  width: 20px;
+  padding: 8px 10px;
+  border: 1px solid #E7EAEC;
+  border-left: none;
+  cursor: move;
+
+  @media (max-width : 990px) {
+      padding: 9px 10px;
+  }
+}
+
+#ags_xoiwcp_report_fields {
+  &::-webkit-scrollbar {
+    -webkit-appearance: none;
+    width: 7px;
+  }
+  &::-webkit-scrollbar {
+    -webkit-appearance: none;
+    width: 7px;
+  }
+  &::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background-color: $agsDarkGreen;
+    box-shadow: 0 0 1px rgba(255, 255, 255, .5);
+  }
+  border: 1px solid #e5e5e569;
+  padding: 10px;
+}

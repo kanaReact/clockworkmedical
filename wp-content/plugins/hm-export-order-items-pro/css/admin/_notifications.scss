@@ -1,0 +1,38 @@
+/* Floating notifications */
+
+.ags-xoiwcp-notification {
+  margin-bottom : 30px;
+  @include notificationMixin();
+
+  &.ags-xoiwcp-notification-success {
+    @include notificationMixin('success');
+    }
+
+  &.ags-xoiwcp-notification-error {
+    @include notificationMixin('error');
+    }
+
+  &.ags-xoiwcp-notification-warning {
+    @include notificationMixin('warning');
+    }
+  }
+
+#ags-xoiwcp-settings-tabs-content {
+
+  p.ags-xoiwcp-validation-result.ags-xoiwcp-validation-error {
+    @include notificationMixin();
+    @include notificationMixin('error');
+    display: block;
+    margin-top:15px;
+    flex-basis:100%;
+    }
+
+  p.ags-xoiwcp-validation-result.ags-xoiwcp-validation-warning {
+    @include notificationMixin();
+    @include notificationMixin('warning');
+    display: block;
+    margin-top:15px;
+    flex-basis:100%;
+    }
+
+  }

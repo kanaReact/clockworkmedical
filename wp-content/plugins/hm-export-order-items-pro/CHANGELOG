@@ -1,0 +1,295 @@
+Version 2.1.35 September 15, 2025
+- New option: Filter by shipping method
+
+Version 2.1.34 December 12, 2024
+- Fix: Order field filtering wasn't working correctly with HPOS order storage
+- Add support for date/time based order field filtering (greater date/time format compatibility)
+
+Version 2.1.33 August 1, 2024
+- Fix potential issue with LastPass extension when adding new field
+
+Version 2.1.32 August 1, 2024
+- Fix: In High Performance Order Storage (HPOS) mode, order meta fields may not be listed in the Add Field dropdown
+
+Version 2.1.31 May 6, 2024
+- Add warning messages in report settings if report start or end time seems to be invalid
+
+Version 2.1.30 March 22, 2024
+- Adjusted documentation comments for a hook within the plugin
+
+Version 2.1.29 March 7, 2024
+- Hide addon license keys
+
+Version 2.1.28 January 3, 2024
+- Fix: Customer field filtering may not work correctly with HPOS enabled
+- Fix: Customer role filtering may not work correctly with HPOS enabled when there are more than 1,000 customers in the selected role
+
+Version 2.1.27 October 30, 2023
+- Remove development code that could result in unwanted output and/or corrupted output files
+
+Version 2.1.26 October 21, 2023
+- Add "Calculate separate totals by line item type" option
+
+Version 2.1.25 May 22, 2023
+- Fix: Missing escaping
+
+Version 2.1.24 May 22, 2023
+- Fix: Sorting may be incorrect when sorting by certain fields with decimal values
+
+Version 2.1.23 May 16, 2023
+- Add High Performance Order Tables support (beta)
+
+Version 2.1.22 January 30, 2023
+- Added User Order Notes field
+- Disabled totals on some built-in fields where totals don't make sense
+
+Version 2.1.21 December 13, 2022
+- Move Customer User Field filtering functionality into separate setting instead of in Only Orders With Field setting (existing reporting configurations should automatically update to use this new field where applicable)
+- Add two additional "Only Orders With Field" filtering rows
+- Add "Order Product Total" built-in field
+- Add clarifications in Order Filtering tab about some settings that apply to the parent order when including refund orders
+
+Version 2.1.20 November 23, 2022
+- Fix: When the options "Include totals row" and "Only show order-related fields on the first row of a group of rows belonging to the same order" are enabled in the Output tab, totals for non-order-related fields (e.g. line item fields, product fields, etc.) may be incorrect
+
+Version 2.1.19 November 21, 2022
+- Fix: When the options "Include totals row" and "Only show order-related fields on the first row of a group of rows belonging to the same order" are enabled in the Output tab, totals for non-order-related fields (e.g. line item fields, product fields, etc.) may be incorrect
+- Fix: The "Customer User Roles" and "Order Creator User Roles" fields were not treated as order fields, so the "Only show order-related fields on the first row of a group of rows belonging to the same order" setting (Output tab) was not applied to them
+
+Version 2.1.18 November 2, 2022
+- Replace some instances of htmlspecialchars with esc_html (fix potential PHP deprecation notice)
+
+Version 2.1.17 October 4, 2022
+- Change the link in the updater code to https://wpzone.co
+
+Version 2.1.16 September 16, 2022
+- Add "dynamic date" feature to Order Filtering tab > Export Period > Custom date range option
+
+Version 2.1.15 August 11, 2022
+- Add Order Item ID field in Export Fields tab
+- Add Only Order Items With Field setting in Line Item Filtering tab
+
+Version 2.1.14, July 13, 2022
+- Fix: Unwanted slashes may be added to some field values when creating a new preset
+
+Version 2.1.13, July 6, 2022
+- Fix: Only Products With Field value is cleared when report settings are loaded
+
+Version 2.1.12, February 1, 2022
+- Fix: Totaling fields with non-numeric values may cause a fatal error with some versions of PHP
+
+Version 2.1.11, October 15, 2021
+- Fix: Unnecessary error when temporary file creating fails in default PHP temporary directory
+
+Version 2.1.10, October 9, 2021
+- Security fix: If temporary directory creation fails, the plugin may have reverted to an insecure temporary directory location
+
+Version 2.1.9, September 14, 2021
+- Change site URL in updater for Divi Space product version
+
+Version 2.1.8, July 16, 2021
+- Fix: Incorrect information in help text below the Line Item Filtering tab > Line Item Refunds > Include line-item refunds setting; see text for corrected info
+
+Version 2.1.7, July 14, 2021
+- Add "Parent Order" field - provides the original order ID for refund orders, etc.
+
+Version 2.1.5, May 4th, 2021
+- Added clarification about WooCommerce behavior regarding line item refunds and Refunded order status: WooCommerce 2.4+ should automatically create line-item refunds when the status of an order is set to Refunded, so this setting should reflect both line-item refunds entered manually and generated automatically on order status change (if order filtering conditions are met).
+- Removed date picker script (shouldn't be needed for browsers that support the date input field)
+
+Version 2.1.4, April 23th, 2021
+- Add Order Creator User Roles field
+
+Version 2.1.3, March 31, 2021
+- Security fix: Report files may be stored in the system's temporary directory when XLSX formats are generated; use a directory within the WordPress installation instead for security reasons in shared environments - (note: this may also have affected the XLS format generation in older versions)
+- Fix: XLSX format generation may result in an empty file in some hosting environments
+
+Version 2.1.2, March 26, 2021
+- Fix: Product categories containing no published products may not appear in the category selection list
+- Fix: If the Order Total field is included in the export and an order is missing the _order_total meta field for some reason, the order may not be included in the export
+- Added Line Item Name field
+- Added Total Order Fees field
+- Added Total Order Fees With Tax field
+- Added Order Date field
+- Added Customer User Roles field
+
+Version 2.1.1, March 24, 2021
+- Fix: potential PHP error when an XLSX export is triggered
+
+Version 2.1.0, March 22, 2021
+- Replaced PHPExcel with PHP_XLSXWriter to address PHP 8 compatibility issue
+- Removed support for generating XLS format files (existing presets should be automatically updated to use XLSX)
+
+Version 2.0.33, March 19, 2021
+- Improved performance while loading admin page and during export
+- Fix: With certain invalid input parameters, a column in the export may have been repeated into subsequent column(s) that should have been blank due to invalid field parameters
+
+Version 2.0.32, February 24, 2021
+- Fix: missing current user ID option under Product Filtering > Only Product With Field
+- Add missing define ags_xoiwcp_VER constant for WP Zone version
+
+Version 2.0.31, February 23, 2021
+- Fix: current user ID option under Order Filtering > Only Orders With Field wasn't working correctly
+
+Version 2.0.30, February 18, 2021
+- Update licensing
+- Fix on admin page for sorting by any field
+
+Version 2.0.29, February 18, 2021
+- Miscellaneous fixes from prior release
+
+Version 2.0.28, February 17, 2021
+- Fix: Previous update(s) broke backwards compatibility with presets created in prior versions
+
+Version 2.0.27, February 15, 2021
+- Security fix: Improve browser caching disabling headers
+
+Version 2.0.26, February 11, 2021
+- Security fix: Send headers to disable browser caching during report viewing/downloading
+- Admin rebranding
+- Added addons tab
+
+Version 2.0.25, 19th January 2021
+- Add option to use the current user ID as the filtering value in the "Only Products With Field" setting (Line Item Filtering tab)
+- Add option to only show order-related fields on the first row of a group of rows belonging to the same order (Output tab > Order Separation)
+- Add option to add an empty row after each group of rows belonging to the same order (Output tab > Order Separation)
+- Set order ID as the secondary sort (so that orders are grouped together after sorting by the primary sort field)
+
+Version 2.0.24, 21st December 2020
+- Add option to set number of decimals when doing number formatting in supported built-in fields
+- Add option to set decimal and thousands separators when doing number formatting in supported built-in fields
+
+Version 2.0.23, 27th November 2020
+- ix: Prevent problems when loading PHPExcel if PHPExcel is already loaded (for example, when used with Scheduled Email Reports or Frontend Reports with another reporting plugin in the same email or page, in certain cases)
+- Avoid outputting errors during XLS/XLSX format generation to avoid file corruption
+
+Version 2.0.22 10-1-2020
+- Security fix: Temporary report files may have been generated in the publicly-accessible wp-content directory (or another directory specified by WP_TEMP_DIR) and/or temporary directories that could be accessible by other web server users. The location would have been determined by the get_temp_dir() function in WordPress. In most cases these temporary files would have been deleted quickly but in some cases, such as when using the Scheduled Email Reports addon plugin or when automatic deletion failed, these temporary files may not have been deleted automatically by the plugins in question. This update changes the plugin's temporary directory to a fixed location below wp-content and uses randomized subdirectories to help prevent unauthorized access on a properly configured web server (an update to Scheduled Email Reports also addresses the deletion issue). Existing temporary report files may remain present on the server after update.
+
+Version 2.0.21 7-3-2020
+- Fix: Fatal error when sending exports with Scheduled Email Reports
+- Fix: The CSV - ASCII export format was not properly supported when sending exports with Scheduled Email Reports
+
+Version 2.0.20 6-26-2020
+- Output > Sort By option now allows for sorting by any field in the export
+- Fix: Output > Sort By option is not respected in the HTML (enhanced) output format
+- Fix: Potential conflict with Product Sales Report Pro when reports from both plugins are run in the same request (for example, by including reports from both plugins in a scheduled email in Scheduled Email Reports)
+
+Version 2.0.19
+- Disable WooCommerce report data caching (preemptive measure; the developer is not aware of any instance of this caching causing inaccuracies in this plugin's output or other problems in this plugin, so this update is just in case)
+
+Version 2.0.18
+- Fix: deactivated or invalid license keys were not deactivating
+
+Version 2.0.17
+- Added UTF-8 BOM to CSV output format
+
+Version 2.0.16
+- Added number formatting option in Output tab
+
+Version 2.0.15
+- Fixed update notification still showing after update
+
+Version 2.0.14
+- Added Order Total field
+- Added option to only total the Order Total field once per individual order
+- Added format options (separating character, surrounding character, escaping character) for the regular CSV export format
+- Added debug mode option
+- Added option to attempt to prevent other plugins and code from changing the export query or output
+- Added option to customize the Product Name field for shipping rows
+
+Version 2.0.13
+- dded "Order Total Item Quantity" field
+- Fixed missing product names for deleted products
+
+Version 2.0.12
+- Fixed incorrect regular expression for problematic field name detection
+
+Version 2.0.11
+- Fixed built-in order shipping fields
+- Fixed warning when used with Frontend Reports
+- Fixed issue with field IDs containing a single quotation mark (')
+- Product category/tag/meta filtering now includes products with all post statuses (e.g. including draft products)
+
+Version 2.0.10
+- Fix related to shipping line item tax
+- Added billing state and shipping state fields
+
+Version 2.0.9
+- Fixed issue with certain checkbox fields in the export settings
+- Fixed issue with product description field
+- Improved display of array values
+- Improved addon and integration support
+
+Version 2.0.8
+- Fixed bug affecting certain integration(s) (e.g. Scheduled Email Reports)
+
+Version 2.0.7
+- Fixed potential duplicate reporting issue with certain meta fields
+- Allowed for no date range override when generating a report programmatically (e.g. using Scheduled Email Reports)
+
+Version 2.0.6
+- Added option for including/excluding line-item refunds from the report
+- Fixed order filtering (order status, order meta, customer meta/role) for refunds
+- Added Product Description field
+- Updated the plugin updater
+
+Version 2.0.5
+- Critical bugfix: Fixed incorrect date ranges when using the "Last 7 days", "Last 30 days", "Next 7 days", or "Next 30 days" options
+- Added improved preset management interface
+- Added the ability to include line items other than products and shipping in the export
+
+Version 2.0.4
+- Fixed database collation issue affecting custom fields list
+- Added "Only include one line per order" option
+- Fixed issue with space in order meta field name when filtering by order field
+
+Version 2.0.3
+- Fixed incorrect date range on reports generated by external plugins (e.g. Frontend Reports, Scheduled Email Reports)
+
+Version 2.0.2
+- Added option to only total order shipping fields once per individual order
+
+Version 2.0.1
+- Disabled debugging output
+
+Version 2.0.0
+- Added tabbed admin interface
+- Added fields: "Line Item Tax", "Line Item Total With Tax", "Order Shipping Methods", "Order Shipping Cost", "Order Shipping Tax", "Order Shipping Cost With Tax"
+- Added option to filter by a product field
+- Added option to exclude zero-amount (free) line items
+- Added option to include shipping line items in the export
+- Added customer user meta fields to the Add Field list
+- Added option to filter by an order meta or customer user meta field
+- Added confirmation prompt on preset deletion
+- Added time fields to custom export date range option
+- Added calendar month based options to the export date range setting
+- Added totals row option
+- Added option to filter orders by customer user role
+- Fixed issue with refund line item quantities when used with WooCommerce < 2.6.0
+
+Version 1.1.6
+- Fixed potential incompatibility with order status plugin(s)
+- Fixed error related to deleted product variations
+
+Version 1.1.5
+- Fixed incorrect Javascript URL on admin page
+
+Version 1.1.4
+- Fixed bug in report field selection dropdown
+- Added addon field hook
+- Added "Item SKU" field
+- Moved admin page code into separate file
+
+Version 1.1.3
+- Minor improvement for third-party plugin compatibility
+
+Version 1.1.2
+- Added "CSV - ASCII" export format
+- Added filtering by product tags
+- Fixed bug related to HTML entities in custom field names
+
+Version 1.1.1
+- Line items without an associated product ID are no longer included in the report
+- Added "Customer Order Note" field
+- Added "Order Note - Most Recent" field

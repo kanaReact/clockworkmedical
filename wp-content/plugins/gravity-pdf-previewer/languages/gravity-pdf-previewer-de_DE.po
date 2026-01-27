@@ -1,0 +1,502 @@
+# Copyright (C) 2017 Gravity PDF Previewer
+# This file is distributed under the same license as the Gravity PDF Previewer package.
+msgid ""
+msgstr ""
+"Project-Id-Version: Gravity PDF Previewer\n"
+"POT-Creation-Date: 2024-10-02 04:50+0000\n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: de_DE\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Poedit-Basepath: ..\n"
+"X-Poedit-KeywordsList: __;_e;_ex:1,2c;_n:1,2;_n_noop:1,2;_nx:1,2,4c;"
+"_nx_noop:1,2,3c;_x:1,2c;esc_attr__;esc_attr_e;esc_attr_x:1,2c;esc_html__;"
+"esc_html_e;esc_html_x:1,2c\n"
+"X-Poedit-SourceCharset: UTF-8\n"
+"X-Generator: Poedit 3.5\n"
+"X-Poedit-SearchPath-0: .\n"
+"X-Poedit-SearchPathExcluded-0: *.js\n"
+
+#: ../gravity-pdf-previewer.php:137, ../gravity-pdf-previewer.php:137
+#, fuzzy
+msgid ""
+"Contact your Site Administrator to install the plugin from the WordPress.org "
+"repository."
+msgstr ""
+"Wenden Sie sich an Ihren Website-Administrator, um das Plugin aus dem "
+"Repository von WordPress.org zu installieren."
+
+#: ../gravity-pdf-previewer.php:134, ../gravity-pdf-previewer.php:134
+#, fuzzy
+msgid "Install the plugin to continue."
+msgstr "Installieren Sie das Plugin, um fortzufahren."
+
+#: ../gravity-pdf-previewer.php:140, ../gravity-pdf-previewer.php:127,
+#: ../gravity-pdf-previewer.php:127
+#, fuzzy
+msgid "%s is required to use this add-on."
+msgstr "%s ist erforderlich, um dieses Add-on zu verwenden."
+
+#: ../gravity-pdf-previewer.php:123, ../gravity-pdf-previewer.php:123
+#, fuzzy
+msgid "%1$s version %2$s or higher is required to use this add-on."
+msgstr ""
+"%1$s version %2$s oder höher ist erforderlich, um dieses Add-on zu verwenden."
+
+#: ../gravity-pdf-previewer.php:155, ../gravity-pdf-previewer.php:155
+#, fuzzy
+msgid "Contact your Site Administrator to active the plugin."
+msgstr ""
+"Wenden Sie sich an Ihren Website-Administrator, um das Plugin zu aktivieren."
+
+#: ../gravity-pdf-previewer.php:161, ../gravity-pdf-previewer.php:161
+#, fuzzy
+msgid "Activate the plugin to continue."
+msgstr "Aktivieren Sie das Plugin, um fortzufahren."
+
+#: ../gravity-pdf-previewer.php:175, ../gravity-pdf-previewer.php:175
+#, fuzzy
+msgid ""
+"Contact your Site Administrator to upgrade the plugin to the latest version."
+msgstr ""
+"Wenden Sie sich an Ihren Website-Administrator, um das Plugin auf die "
+"neueste Version zu aktualisieren."
+
+#: ../gravity-pdf-previewer.php:181, ../gravity-pdf-previewer.php:181
+#, fuzzy
+msgid "Upgrade the plugin to continue."
+msgstr "Aktualisieren Sie das Plugin, um fortzufahren."
+
+#: ../gravity-pdf-previewer.php:195, ../gravity-pdf-previewer.php:195
+msgid "Gravity PDF Previewer Installation Problem"
+msgstr "Installationsproblem beim Gravity PDF Previewer"
+
+#: ../src/Field/GFormFieldPreviewer.php:78,
+#: ../src/Field/RegisterPreviewerCustomFields.php:306
+msgid "PDF Preview"
+msgstr "PDF-Vorschau"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:80,
+#: ../src/Field/markup/pdf-selector-setting.php:3
+msgid "PDF to Preview"
+msgstr "PDF für Vorschau"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:80
+msgid ""
+"Select one of the active PDFs you want the end-user to preview before the "
+"form is submitted."
+msgstr ""
+"Wählen Sie eine aktive PDF, die der Endnutzer in einer Vorschau sehen soll, "
+"bevor das Formular abgeschickt wird."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:81,
+#: ../src/Field/markup/pdf-theme-setting.php:3
+msgid "Design"
+msgstr "Design"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:81
+msgid ""
+"Select a light or dark appearance for the PDF Viewer, or set to automatic to "
+"use the device default."
+msgstr ""
+"Wählen Sie ein helles oder dunkles Erscheinungsbild für den PDF-Viewer oder "
+"stellen Sie ihn auf „Automatisch“ ein, um den Gerätestandard zu verwenden."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:82,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:3
+msgid "Zoom Level"
+msgstr "Zoomstufe"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:82
+msgid ""
+"Control the default zoom level of the Viewer. Page Width sets the zoom level "
+"of the PDF to the container width. Page Fit will show the entire first page "
+"in the Viewer. Actual Size is an alias for 100%."
+msgstr ""
+"Steuern Sie die standardmäßige Zoomstufe des Viewers. Seitenbreite legt die "
+"Zoomstufe des PDFs auf die Containerbreite fest. Page Fit zeigt die gesamte "
+"erste Seite im Viewer an. Tatsächliche Größe ist ein Alias für 100 %."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:83,
+#: ../src/Field/markup/pdf-page-scrolling-setting.php:3
+msgid "Page Scrolling"
+msgstr "Seite scrollen"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:83
+msgid "Display the pages of a PDF vertically or horizontally in the Viewer."
+msgstr ""
+"Zeigen Sie die Seiten einer PDF-Datei vertikal oder horizontal im Viewer an."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:84,
+#: ../src/Field/markup/pdf-spread-setting.php:3
+msgid "Page Spread"
+msgstr "Gleichmäßige Seitenverteilung"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:84
+msgid ""
+"When enabled, the PDF pages are displayed side-by-side like a book. Choosing "
+"an Odd Spread begins page 1 on the left and page 2 on the right. An Even "
+"Spread begins with page 2 on the left and page 3 the right. This format "
+"continues until all pages are displayed."
+msgstr ""
+"Wenn diese Option aktiviert ist, werden die PDF-Seiten wie ein Buch "
+"nebeneinander angezeigt. Die Auswahl eines ungeraden Spreads beginnt auf "
+"Seite 1 links und Seite 2 rechts. Eine gleichmäßige Doppelseite beginnt mit "
+"Seite 2 links und Seite 3 rechts. Dieses Format wird fortgesetzt, bis alle "
+"Seiten angezeigt werden."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:85,
+#: ../src/Field/markup/preview-height-setting.php:3
+msgid "Preview Height"
+msgstr "Vorschauhöhe"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:85
+msgid "Set the height of the Viewer container (in pixels)."
+msgstr "Legen Sie die Höhe des Viewer-Containers fest (in Pixel)."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:86,
+#: ../src/Field/markup/pdf-watermark-setting.php:2
+msgid "Watermark"
+msgstr "Wasserzeichen"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:86
+msgid ""
+"Add a diagonal text-based watermark to each page of the PDF and control the "
+"font type used."
+msgstr ""
+"Fügen Sie jeder Seite der PDF-Datei ein diagonales textbasiertes "
+"Wasserzeichen hinzu und steuern Sie die verwendete Schriftart."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:87
+msgid "Right-Click Protection"
+msgstr "Rechtsklick-Schutz"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:87
+msgid ""
+"By default users cannot right click on PDF pages to access the context menu. "
+"This prevents users saving a page as an image, which some browsers support. "
+"Enabling this option turns off this protection."
+msgstr ""
+"Standardmäßig können Benutzer nicht mit der rechten Maustaste auf PDF-Seiten "
+"klicken, um auf das Kontextmenü zuzugreifen. Dies verhindert, dass Benutzer "
+"eine Seite als Bild speichern, was einige Browser unterstützen. Durch "
+"Aktivieren dieser Option wird dieser Schutz deaktiviert."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:88
+msgid "Text-Copying Protection"
+msgstr "Text-Kopierschutz"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:88
+msgid ""
+"By default users cannot copy any text on PDF pages. Enable this option to "
+"render the text in the DOM, making it selectable for users and providing "
+"better accessibility for Screen Readers."
+msgstr ""
+"Standardmäßig können Benutzer keinen Text auf PDF-Seiten kopieren. "
+"Aktivieren Sie diese Option, um den Text im DOM zu rendern, ihn für Benutzer "
+"auswählbar zu machen und eine bessere Zugänglichkeit für Screenreader "
+"bereitzustellen."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:89
+msgid "Automatic Refresh"
+msgstr "Automatische Auffrischung"
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:89
+msgid ""
+"The PDF preview automatically refreshes when form changes are made, and the "
+"viewer is visible. Depending on the hosting provider, and size of the PDF, "
+"refreshing automatically may put too much strain on the server. Enable this "
+"option turns off this feature."
+msgstr ""
+"Die PDF-Vorschau wird automatisch aktualisiert, wenn Formularänderungen "
+"vorgenommen werden und der Viewer sichtbar ist. Je nach Hosting-Anbieter und "
+"Größe der PDF-Datei kann die automatische Aktualisierung den Server zu stark "
+"belasten. Aktivieren Sie diese Option, um diese Funktion zu deaktivieren."
+
+#: ../src/Field/RegisterPreviewerCustomFields.php:308
+msgid "SAMPLE"
+msgstr "MUSTER"
+
+#: ../src/Field/RegisterPreviewerField.php:100
+msgid "Loading spinner"
+msgstr "Wird geladen"
+
+#: ../src/Field/RegisterPreviewerField.php:101,
+#: ../src/Field/RegisterPreviewerField.php:125,
+#: ../src/Field/markup/pdf-refresh-setting.php:2,
+#: ../src/Field/markup/previewer-placeholder.php:83,
+#: ../src/Field/markup/previewer-placeholder.php:84
+msgid "Refresh"
+msgstr "Aktualisieren"
+
+#: ../src/Field/RegisterPreviewerField.php:102
+msgid "Loading PDF Preview"
+msgstr "PDF-Vorschau lädt"
+
+#: ../src/Field/RegisterPreviewerField.php:103
+msgid "Loading…"
+msgstr "Wird geladen…"
+
+#: ../src/Field/RegisterPreviewerField.php:104
+msgid "There was a problem loading the preview."
+msgstr "Beim Laden der Vorschau ist ein Problem aufgetreten."
+
+#: ../src/Field/RegisterPreviewerField.php:106,
+#: ../src/Field/markup/previewer-placeholder.php:60,
+#: ../src/Field/markup/previewer-placeholder.php:61
+msgid "Previous Page"
+msgstr "Vorherige Seite"
+
+#: ../src/Field/RegisterPreviewerField.php:107,
+#: ../src/Field/markup/previewer-placeholder.php:66,
+#: ../src/Field/markup/previewer-placeholder.php:67
+msgid "Next Page"
+msgstr "Nächste Seite"
+
+#: ../src/Field/RegisterPreviewerField.php:108,
+#: ../src/Field/markup/previewer-placeholder.php:71,
+#: ../src/Field/markup/previewer-placeholder.php:72
+msgid "Set Page Number. Maximum value %s"
+msgstr "Seitenzahl einstellen. Maximalwert %s"
+
+#: ../src/Field/RegisterPreviewerField.php:109
+msgid "of %s"
+msgstr "von %s"
+
+#: ../src/Field/RegisterPreviewerField.php:110,
+#: ../src/Field/markup/previewer-placeholder.php:91,
+#: ../src/Field/markup/previewer-placeholder.php:92
+msgid "Zoom Out"
+msgstr "Rauszoomen"
+
+#: ../src/Field/RegisterPreviewerField.php:111,
+#: ../src/Field/markup/previewer-placeholder.php:97,
+#: ../src/Field/markup/previewer-placeholder.php:98
+msgid "Zoom In"
+msgstr "Hineinzoomen"
+
+#: ../src/Field/RegisterPreviewerField.php:112,
+#: ../src/Field/markup/previewer-placeholder.php:103
+msgid "Zoom level"
+msgstr "Zoom Level"
+
+#: ../src/Field/RegisterPreviewerField.php:113,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:10,
+#: ../src/Field/markup/previewer-placeholder.php:104
+msgid "Actual Size"
+msgstr "Tatsächliche Größe"
+
+#: ../src/Field/RegisterPreviewerField.php:114,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:9,
+#: ../src/Field/markup/previewer-placeholder.php:105
+msgid "Page Fit"
+msgstr "An Seite anpassen"
+
+#: ../src/Field/RegisterPreviewerField.php:115,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:8,
+#: ../src/Field/markup/previewer-placeholder.php:106
+msgid "Page Width"
+msgstr "Seitenbreite"
+
+#: ../src/Field/RegisterPreviewerField.php:116,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:11,
+#: ../src/Field/markup/previewer-placeholder.php:107
+msgid "50%"
+msgstr "50%"
+
+#: ../src/Field/RegisterPreviewerField.php:117,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:12,
+#: ../src/Field/markup/previewer-placeholder.php:108
+msgid "75%"
+msgstr "75%"
+
+#: ../src/Field/RegisterPreviewerField.php:118,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:13,
+#: ../src/Field/markup/previewer-placeholder.php:109
+msgid "100%"
+msgstr "100%"
+
+#: ../src/Field/RegisterPreviewerField.php:119,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:14,
+#: ../src/Field/markup/previewer-placeholder.php:110
+msgid "125%"
+msgstr "125%"
+
+#: ../src/Field/RegisterPreviewerField.php:120,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:15,
+#: ../src/Field/markup/previewer-placeholder.php:111
+msgid "150%"
+msgstr "150%"
+
+#: ../src/Field/RegisterPreviewerField.php:121,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:16,
+#: ../src/Field/markup/previewer-placeholder.php:112
+msgid "200%"
+msgstr "200%"
+
+#: ../src/Field/RegisterPreviewerField.php:122,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:17,
+#: ../src/Field/markup/previewer-placeholder.php:113
+msgid "300%"
+msgstr "300%"
+
+#: ../src/Field/RegisterPreviewerField.php:123,
+#: ../src/Field/markup/pdf-zoom-level-setting.php:18,
+#: ../src/Field/markup/previewer-placeholder.php:114
+msgid "400%"
+msgstr "400%"
+
+#: ../src/Field/RegisterPreviewerField.php:124,
+#: ../src/Field/markup/previewer-placeholder.php:79,
+#: ../src/Field/markup/previewer-placeholder.php:80
+msgid "Download"
+msgstr "Herunterladen"
+
+#: ../src/Field/RegisterPreviewerField.php:126
+msgid "PDF Page %s"
+msgstr "PDF-Seite %s"
+
+#: ../src/Field/RegisterPreviewerField.php:127
+msgid "Inline PDF Viewer"
+msgstr "Inline-PDF-Betrachter"
+
+#: ../src/Field/markup/pdf-download-setting.php:2
+msgid "Download Preview"
+msgstr "Vorschau herunterladen"
+
+#: ../src/Field/markup/pdf-download-setting.php:8
+msgid "Allow a user to download the PDF"
+msgstr "Erlauben Sie einem Benutzer, das PDF herunterzuladen"
+
+#: ../src/Field/markup/pdf-page-scrolling-setting.php:8
+msgid "Vertical"
+msgstr "Vertikal"
+
+#: ../src/Field/markup/pdf-page-scrolling-setting.php:9
+msgid "Horizontal"
+msgstr "Horizontal"
+
+#: ../src/Field/markup/pdf-refresh-setting.php:9
+msgid "Disable automatic refresh"
+msgstr "Automatische Aktualisierung deaktivieren"
+
+#: ../src/Field/markup/pdf-security-setting.php:2
+msgid "Security"
+msgstr "Sicherheit"
+
+#: ../src/Field/markup/pdf-security-setting.php:10
+msgid "Disable right-click protection"
+msgstr "Deaktivieren Sie den Rechtsklickschutz"
+
+#: ../src/Field/markup/pdf-security-setting.php:21
+msgid "Disable text-copying protection"
+msgstr "Deaktivieren Sie den Textkopierschutz"
+
+#: ../src/Field/markup/pdf-selector-setting.php:19
+msgid ""
+"To use this field you %1$sneed to create/active a PDF for this form%2$s."
+msgstr ""
+"Um dieses Feld zu verwenden, %1$smüssen Sie ein PDF für dieses Formular "
+"erstellen/aktivieren%2$s."
+
+#: ../src/Field/markup/pdf-spread-setting.php:8
+msgid "No Spread"
+msgstr "Keine Seitenausbreitung"
+
+#: ../src/Field/markup/pdf-spread-setting.php:9
+msgid "Odd Spread"
+msgstr "Ungerade Seitenverteilung"
+
+#: ../src/Field/markup/pdf-spread-setting.php:10
+msgid "Even Spread"
+msgstr "Gleichmäßige Seitenverteilung"
+
+#: ../src/Field/markup/pdf-theme-setting.php:8
+msgid "Automatic"
+msgstr "Automatik"
+
+#: ../src/Field/markup/pdf-theme-setting.php:9
+msgid "Light"
+msgstr "Heller Modus"
+
+#: ../src/Field/markup/pdf-theme-setting.php:10
+msgid "Dark"
+msgstr "Dunkler Modus"
+
+#: ../src/Field/markup/pdf-watermark-setting.php:8
+msgid "Enable a text watermark in the PDF"
+msgstr "Aktivieren Sie ein Textwasserzeichen in der PDF-Datei"
+
+#: ../src/Field/markup/pdf-watermark-setting.php:15
+msgid "Watermark Text"
+msgstr "Text im Wasserzeichen"
+
+#: ../src/Field/markup/pdf-watermark-setting.php:24
+msgid "Watermark Font"
+msgstr "Schriftart im Wasserzeichen"
+
+#: ../src/Field/markup/previewer-placeholder.php:52
+msgid "A preview of the Gravity PDF document viewer"
+msgstr "Eine Vorschau auf den Gravity PDF-Dokumentenbetrachter"
+
+#: ../src/Field/markup/previewer-placeholder.php:130
+msgid "Page %s"
+msgstr "Seite %s"
+
+#: ../src/Field/markup/previewer-placeholder.php:133
+msgid "Gravity PDF"
+msgstr "Gravity PDF"
+
+#: ../src/Field/markup/previewer-placeholder.php:137
+msgid "Previewer Field Example"
+msgstr "Beispiel für ein Vorschaufeld"
+
+#: ../src/Field/markup/previewer-placeholder.php:141
+msgid ""
+"This is a content placeholder. The paper size, orientation, fonts, "
+"watermark, and layout will vary (as defined in your PDF settings)."
+msgstr ""
+"Dies ist ein Platzhalter für den Inhalt. Papierformat, Ausrichtung, "
+"Schriftarten, Wasserzeichen und Layout variieren (wie in Ihren PDF-"
+"Einstellungen festgelegt)."
+
+#~ msgid ""
+#~ "Gravity PDF Version %s or higher is required to use this add-on. Please "
+#~ "install/upgrade Gravity PDF to the latest version."
+#~ msgstr ""
+#~ "Für diese Erweiterung ist Gravity PDF ab Version %s erforderlich. Bitte "
+#~ "installieren Sie Gravity PDF oder laden Sie die aktuelle Version herunter."
+
+#~ msgid ""
+#~ "The minimum requirements for the Gravity PDF Previewer plugin have not "
+#~ "been met. Please fix the issue(s) below to continue:"
+#~ msgstr ""
+#~ "Die Mindestanforderungen an das Plugin von Gravity PDF Previewer sind "
+#~ "nicht erfüllt. Bitte beheben Sie zunächst folgendes Problem:"
+
+#~ msgid "PDF Document"
+#~ msgstr "PDF-Dokument"
+
+#~ msgid ""
+#~ "This is a content placeholder. The PDF Preview is not displayed in the "
+#~ "form admin. View the form to preview the PDF."
+#~ msgstr ""
+#~ "Dies ist ein Platzhalter. Die PDF-Vorschau wird nicht im Formular-Admin "
+#~ "angezeigt. Betrachten Sie das Formular, um die PDF-Vorschau zu sehen."
+
+#~ msgid "Page"
+#~ msgstr "Page"
+
+#~ msgid "Spread"
+#~ msgstr "Seitenaufteilung"
+
+#~ msgid ""
+#~ "Set the PDF Preview height the document will be displayed at (in pixels). "
+#~ "The default height is 600px."
+#~ msgstr ""
+#~ "Geben Sie die gewünschte Höhe des Vorschaudokuments in Pixel an. Die "
+#~ "Standardhöhe beträgt 600 px."

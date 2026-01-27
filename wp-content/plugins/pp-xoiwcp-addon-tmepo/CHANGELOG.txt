@@ -1,0 +1,5 @@
+1.0.3 November 30, 2023
+-  Add support for exporting checkbox quantity fields
+
+1.0.2 October 4, 2022
+- Change the link in the updater code to https://wpzone.co

@@ -1,0 +1,88 @@
+# WordPress .gitignore
+
+# Core WordPress files (typically not versioned)
+/wp-admin/
+/wp-includes/
+/wp-*.php
+/index.php
+/license.txt
+/readme.html
+/xmlrpc.php
+
+# Configuration (contains sensitive data)
+wp-config.php
+wp-config-local.php
+
+# Uploads directory (media files)
+/wp-content/uploads/
+
+# Cache and backup files
+/wp-content/cache/
+/wp-content/backup*/
+/wp-content/backups/
+/wp-content/upgrade/
+/wp-content/wflogs/
+
+# Plugin-specific caches
+/wp-content/plugins/wp-rocket/
+/wp-content/wp-rocket-config/
+/wp-content/advanced-cache.php
+/wp-content/object-cache.php
+/wp-content/db.php
+
+# Must-use plugins (optional - uncomment if you want to track them)
+# /wp-content/mu-plugins/
+
+# Debug log
+/wp-content/debug.log
+debug.log
+error_log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
+*.code-workspace
+
+# Node modules (if using build tools)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Composer
+/vendor/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# SQL database dumps
+*.sql
+*.sql.gz
+
+# Archives
+*.zip
+*.tar.gz
+*.rar

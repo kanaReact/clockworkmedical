@@ -1,0 +1,295 @@
+# Copyright (C) 2025 Gravity Forms
+# This file is distributed under the GPL-2.0+.
+msgid ""
+msgstr ""
+"Project-Id-Version: Gravity Forms Survey Add-On 4.2.2\n"
+"Report-Msgid-Bugs-To: https://gravityforms.com/support\n"
+"Last-Translator: Gravity Forms <support@gravityforms.com>\n"
+"Language-Team: Gravity Forms <support@gravityforms.com>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2025-10-14T15:09:29+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: gravityformssurvey\n"
+
+#. Plugin Name of the plugin
+msgid "Gravity Forms Survey Add-On"
+msgstr ""
+
+#. Plugin URI of the plugin
+#. Author URI of the plugin
+msgid "https://gravityforms.com"
+msgstr ""
+
+#. Description of the plugin
+msgid "Allows you to quickly and easily deploy Surveys on your web site using the power of Gravity Forms."
+msgstr ""
+
+#. Author of the plugin
+msgid "Gravity Forms"
+msgstr ""
+
+#: class-gf-survey.php:348
+msgid "Untitled Survey Field"
+msgstr ""
+
+#: class-gf-survey.php:356
+msgid "First row"
+msgstr ""
+
+#: class-gf-survey.php:357
+msgid "Second row"
+msgstr ""
+
+#: class-gf-survey.php:358
+msgid "Third row"
+msgstr ""
+
+#: class-gf-survey.php:359
+msgid "Fourth row"
+msgstr ""
+
+#: class-gf-survey.php:360
+msgid "Fifth row"
+msgstr ""
+
+#: class-gf-survey.php:361
+msgid "Drag to re-order"
+msgstr ""
+
+#: class-gf-survey.php:362
+msgid "Add another row"
+msgstr ""
+
+#: class-gf-survey.php:363
+msgid "Remove this row"
+msgstr ""
+
+#: class-gf-survey.php:364
+msgid "Add another column"
+msgstr ""
+
+#: class-gf-survey.php:365
+msgid "Remove this column"
+msgstr ""
+
+#: class-gf-survey.php:366
+msgid "Strongly disagree"
+msgstr ""
+
+#: class-gf-survey.php:367
+msgid "Disagree"
+msgstr ""
+
+#: class-gf-survey.php:368
+#: class-gf-survey.php:405
+msgid "Neutral"
+msgstr ""
+
+#: class-gf-survey.php:369
+msgid "Agree"
+msgstr ""
+
+#: class-gf-survey.php:370
+msgid "Strongly agree"
+msgstr ""
+
+#: class-gf-survey.php:376
+msgid "First Choice"
+msgstr ""
+
+#: class-gf-survey.php:377
+msgid "Second Choice"
+msgstr ""
+
+#: class-gf-survey.php:378
+msgid "Third Choice"
+msgstr ""
+
+#: class-gf-survey.php:379
+msgid "Fourth Choice"
+msgstr ""
+
+#: class-gf-survey.php:380
+msgid "Fifth Choice"
+msgstr ""
+
+#: class-gf-survey.php:386
+msgid "Position"
+msgstr ""
+
+#: class-gf-survey.php:387
+msgid "is in position"
+msgstr ""
+
+#: class-gf-survey.php:388
+msgid "is not in position"
+msgstr ""
+
+#: class-gf-survey.php:389
+msgid "is in a position greater than"
+msgstr ""
+
+#: class-gf-survey.php:390
+msgid "is in a position less than"
+msgstr ""
+
+#: class-gf-survey.php:396
+msgid "is"
+msgstr ""
+
+#: class-gf-survey.php:397
+msgid "is not"
+msgstr ""
+
+#: class-gf-survey.php:403
+msgid "Terrible"
+msgstr ""
+
+#: class-gf-survey.php:404
+msgid "Not so great"
+msgstr ""
+
+#: class-gf-survey.php:406
+msgid "Pretty good"
+msgstr ""
+
+#: class-gf-survey.php:407
+msgid "Excellent"
+msgstr ""
+
+#: class-gf-survey.php:495
+msgid "Survey Results"
+msgstr ""
+
+#: class-gf-survey.php:730
+msgid "Survey Field Score: "
+msgstr ""
+
+#: class-gf-survey.php:739
+#: class-gf-survey.php:832
+msgid "Survey Total Score"
+msgstr ""
+
+#: class-gf-survey.php:1135
+#: class-gf-survey.php:1156
+msgid "Survey Question"
+msgstr ""
+
+#: class-gf-survey.php:1135
+msgid "Enter the question you would like to ask the user."
+msgstr ""
+
+#: class-gf-survey.php:1136
+#: class-gf-survey.php:1168
+msgid "Survey Field Type"
+msgstr ""
+
+#: class-gf-survey.php:1136
+msgid "Select the type of field that will be used for the survey."
+msgstr ""
+
+#: class-gf-survey.php:1137
+msgid "Likert Columns"
+msgstr ""
+
+#: class-gf-survey.php:1137
+msgid "Edit the choices for this likert field."
+msgstr ""
+
+#: class-gf-survey.php:1138
+#: class-gf-survey.php:1218
+msgid "Enable Multiple Rows"
+msgstr ""
+
+#: class-gf-survey.php:1138
+msgid "Select to add multiple rows to the likert field."
+msgstr ""
+
+#: class-gf-survey.php:1139
+msgid "Likert Rows"
+msgstr ""
+
+#: class-gf-survey.php:1139
+msgid "Edit the texts that will appear to the left of each row of choices."
+msgstr ""
+
+#: class-gf-survey.php:1140
+#: class-gf-survey.php:1202
+msgid "Enable Scoring"
+msgstr ""
+
+#: class-gf-survey.php:1140
+msgid "Scoring allows different scores for each column. Aggregate scores are displayed in the results page and can be used in merge tags."
+msgstr ""
+
+#: class-gf-survey.php:1175
+msgid "Likert"
+msgstr ""
+
+#: class-gf-survey.php:1176
+msgid "Rank"
+msgstr ""
+
+#: class-gf-survey.php:1177
+msgid "Rating"
+msgstr ""
+
+#: class-gf-survey.php:1178
+msgid "Radio Buttons"
+msgstr ""
+
+#: class-gf-survey.php:1179
+msgid "Checkboxes"
+msgstr ""
+
+#: class-gf-survey.php:1180
+msgid "Single Line Text"
+msgstr ""
+
+#: class-gf-survey.php:1181
+msgid "Paragraph Text"
+msgstr ""
+
+#: class-gf-survey.php:1182
+msgid "Drop Down"
+msgstr ""
+
+#: class-gf-survey.php:1191
+msgid "Columns"
+msgstr ""
+
+#: class-gf-survey.php:1225
+msgid "Rows"
+msgstr ""
+
+#: class-gf-survey.php:1241
+#: class-gf-survey.php:1275
+msgid "Survey Entries"
+msgstr ""
+
+#: class-gf-survey.php:1272
+msgid "This contact has not submitted any survey entries yet."
+msgstr ""
+
+#: class-gf-survey.php:1280
+msgid "Entry ID"
+msgstr ""
+
+#: class-gf-survey.php:1283
+msgid "Date"
+msgstr ""
+
+#: class-gf-survey.php:1286
+msgid "Form"
+msgstr ""
+
+#: includes/class-gf-field-likert.php:169
+msgid "%d of %d items shown. Edit field to view all"
+msgstr ""
+
+#: includes/class-gf-field-survey.php:19
+msgid "Survey"
+msgstr ""

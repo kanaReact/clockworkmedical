@@ -1,0 +1,225 @@
+# Translation of RocketGenius - Gravity Forms Coupons in English (UK)
+# This file is distributed under the same license as the RocketGenius - Gravity Forms Coupons package.
+msgid ""
+msgstr ""
+"PO-Revision-Date: 2022-03-15 13:30:44+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+"X-Generator: GlotPress/4.0.0-rc.1\n"
+"Language: en_GB\n"
+"Project-Id-Version: RocketGenius - Gravity Forms Coupons\n"
+
+#. Author of the plugin
+#: coupons.php
+msgid "Gravity Forms"
+msgstr "Gravity Forms"
+
+#: class-gf-coupons.php:1434
+msgid "This coupon has reached its usage limit."
+msgstr "This coupon has reached its usage limit."
+
+#: class-gf-coupons.php:1422
+msgid "This coupon has expired."
+msgstr "This coupon has expired."
+
+#: class-gf-coupons.php:1403
+msgid "This coupon is currently inactive."
+msgstr "This coupon is currently inactive."
+
+#: class-gf-coupons.php:1325
+msgid "This coupon can't be used in conjunction with other coupons you have already entered."
+msgstr "This coupon can't be used in conjunction with other coupons you have already entered."
+
+#: class-gf-coupons.php:1314
+msgid "This coupon can't be applied more than once."
+msgstr "This coupon can't be applied more than once."
+
+#: class-gf-coupons.php:1157
+msgid "The Coupon Code entered is already in use. Please enter a unique Coupon Code and try again."
+msgstr "The Coupon Code entered is already in use. Please enter a unique Coupon Code and try again."
+
+#: class-gf-coupons.php:1145
+msgid "Please enter a valid Coupon Code. The Coupon Code can only contain alphanumeric characters."
+msgstr "Please enter a valid Coupon Code. The Coupon Code can only contain alphanumeric characters."
+
+#: class-gf-coupons.php:1101
+msgid "This field is required."
+msgstr "This field is required."
+
+#: class-gf-coupons.php:1068
+msgid "Percentage(%)"
+msgstr "Percentage(%)"
+
+#: class-gf-coupons.php:1063
+msgid "Flat"
+msgstr "Flat"
+
+#: class-gf-coupons.php:953
+msgid "Select a Form"
+msgstr "Select a Form"
+
+#: class-gf-coupons.php:925
+msgid "When the \"Is Stackable\" option is selected, this coupon code will be allowed to be used in conjunction with another coupon code."
+msgstr "When the \"Is Stackable\" option is selected, this coupon code will be allowed to be used in conjunction with another coupon code."
+
+#: class-gf-coupons.php:919
+msgid "Enter the number of times coupon code can be used."
+msgstr "Enter the number of times coupon code can be used."
+
+#: class-gf-coupons.php:909 class-gf-coupons.php:911
+msgid "End Date"
+msgstr "End Date"
+
+#: class-gf-coupons.php:901 class-gf-coupons.php:903
+msgid "Start Date"
+msgstr "Start Date"
+
+#: class-gf-coupons.php:895
+msgid "Coupon Options"
+msgstr "Coupon Options"
+
+#: class-gf-coupons.php:890
+msgid "Enter the amount to be deducted from the form total."
+msgstr "Enter the amount to be deducted from the form total."
+
+#: class-gf-coupons.php:886 class-gf-coupons.php:890
+msgid "Coupon Amount"
+msgstr "Coupon Amount"
+
+#: class-gf-coupons.php:882
+msgid "Enter the value users should enter to apply this coupon to the form total."
+msgstr "Enter the value users should enter to apply this coupon to the form total."
+
+#: class-gf-coupons.php:878 class-gf-coupons.php:882
+msgid "Coupon Code"
+msgstr "Coupon Code"
+
+#: class-gf-coupons.php:874
+msgid "Enter coupon name."
+msgstr "Enter coupon name."
+
+#: class-gf-coupons.php:871 class-gf-coupons.php:874
+msgid "Coupon Name"
+msgstr "Coupon Name"
+
+#: class-gf-coupons.php:865
+msgid "Coupon Basics"
+msgstr "Coupon Basics"
+
+#: class-gf-coupons.php:860
+msgid "Select the Gravity Form you would like to integrate with Coupons."
+msgstr "Select the Gravity Form you would like to integrate with Coupons."
+
+#: class-gf-coupons.php:856 class-gf-coupons.php:860
+msgid "Gravity Form"
+msgstr "Gravity Form"
+
+#: class-gf-coupons.php:851
+msgid "Applies to Which Form?"
+msgstr "Applies to Which Form?"
+
+#: class-gf-coupons.php:768
+msgid "Invalid Form"
+msgstr "Invalid Form"
+
+#: class-gf-coupons.php:763 class-gf-coupons.php:954
+msgid "Any Form"
+msgstr "Any Form"
+
+#: class-gf-coupons.php:715 class-gf-coupons.php:923 class-gf-coupons.php:925
+#: class-gf-coupons.php:928
+msgid "Is Stackable"
+msgstr "Is Stackable"
+
+#: class-gf-coupons.php:714
+msgid "Expires"
+msgstr "Expires"
+
+#: class-gf-coupons.php:713 class-gf-coupons.php:935
+msgid "Usage Count"
+msgstr "Usage Count"
+
+#: class-gf-coupons.php:712 class-gf-coupons.php:917 class-gf-coupons.php:919
+msgid "Usage Limit"
+msgstr "Usage Limit"
+
+#: class-gf-coupons.php:711
+msgid "Amount"
+msgstr "Amount"
+
+#: class-gf-coupons.php:710
+msgid "Form"
+msgstr "Form"
+
+#: class-gf-coupons.php:709
+msgid "Title"
+msgstr "Title"
+
+#: class-gf-coupons.php:663
+msgid "Reset Usage Count"
+msgstr "Reset Usage Count"
+
+#: class-gf-coupons.php:645
+msgid "Edit"
+msgstr "Edit"
+
+#: class-gf-coupons.php:645
+msgid "Edit this feed"
+msgstr "Edit this feed"
+
+#: class-gf-coupons.php:360 class-gf-coupons.php:1303 class-gf-coupons.php:1415
+msgid "Invalid coupon."
+msgstr "Invalid coupon."
+
+#: class-gf-coupons.php:346
+msgid "You must enter a value for coupon code."
+msgstr "You must enter a value for coupon code."
+
+#: class-gf-coupons.php:242
+msgid "Coupon Code:"
+msgstr "Coupon Code:"
+
+#: class-gf-field-coupon.php:193
+msgid "Only one Coupon field can be added to the form"
+msgstr "Only one Coupon field can be added to the form"
+
+#: class-gf-field-coupon.php:190
+msgid "You must add a Total field to the form"
+msgstr "You must add a Total field to the form"
+
+#: class-gf-field-coupon.php:187
+msgid "You must add a Product field to the form"
+msgstr "You must add a Product field to the form"
+
+#: class-gf-field-coupon.php:157
+msgid "Coupon code: %s is invalid."
+msgstr "Coupon code: %s is invalid."
+
+#: class-gf-field-coupon.php:124
+msgid "please wait"
+msgstr "please wait"
+
+#: class-gf-field-coupon.php:123
+msgid "Apply"
+msgstr "Apply"
+
+#: class-gf-field-coupon.php:111
+msgid "Coupon fields are not editable"
+msgstr "Coupon fields are not editable"
+
+#: class-gf-field-coupon.php:27
+msgid "Coupon"
+msgstr "Coupon"
+
+#. Plugin URI of the plugin
+#. Author URI of the plugin
+#: coupons.php
+msgid "https://gravityforms.com"
+msgstr "https://gravityforms.com"
+
+#. Plugin Name of the plugin
+#: coupons.php
+msgid "Gravity Forms Coupons Add-On"
+msgstr "Gravity Forms Coupons Add-On"

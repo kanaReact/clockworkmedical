@@ -1,0 +1,76 @@
+/*
+ * 11.2 - Settings Header
+ */
+
+#ags-xoiwcp-settings-header {
+  background      : $agsDarkGrey;
+  position        : relative;
+  padding         : 16px 23px;
+  justify-content : space-between;
+  display         : flex;
+  flex-wrap       : wrap;
+  align-items     : center;
+
+  @media (max-width : 600px) {
+    justify-content : center;
+
+    h3 {
+      text-align : center;
+      }
+    }
+
+  .ags-xoiwcp-settings-logo {
+    img {
+      display        : inline-block;
+      vertical-align : middle;
+      margin-right   : 10px;
+      width          : 35px;
+      }
+
+    h3 {
+      margin         : 5px 20px 5px 0;
+      color          : #FFF;
+      font-size      : 20px;
+      font-weight    : bold;
+      display        : inline-block;
+      vertical-align : middle;
+      }
+    }
+  }
+
+#ags-xoiwcp-settings-header-links a {
+  text-decoration     : none;
+  color               : #FFFFFF;
+  font-size           : 14px;
+  opacity             : 0.54;
+  font-weight         : 600;
+  margin-left         : 20px;
+  padding             : 8px 16px 8px 30px;
+  display             : inline-block;
+  border-radius       : 4px;
+  background-size     : 28px;
+  background-repeat   : no-repeat;
+  background-position : left center;
+  box-shadow          : none;
+
+  &:hover {
+    opacity : 1;
+    }
+
+  &.active {
+    opacity : 1;
+    }
+
+  &:first-of-type {
+    margin-left : 0;
+    }
+  }
+
+#ags-xoiwcp-settings-header-link-settings {
+  background-image : url(../images/settings.svg);
+  display          : none !important;
+  }
+
+#ags-xoiwcp-settings-header-link-support {
+  background-image : url(../images/help.svg);
+  }

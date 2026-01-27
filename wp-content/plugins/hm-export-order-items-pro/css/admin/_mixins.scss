@@ -1,0 +1,216 @@
+// ------------------------------------------------------------------------------------------- //
+//                               Form Mixins
+// ------------------------------------------------------------------------------------------- //
+
+// Reusable form mixins
+@mixin formElementMixin() {
+  padding          : 0 16px !important;
+  box-shadow       : none !important;
+  background-color : #FDFDFD !important;
+  font-size        : 14px;
+  border           : 1px solid $middleBorderColor;
+  font-weight      : normal;
+  border-radius    : $mainRadius;;
+  font-family      : $fontGeneral;
+
+  &:focus {
+    border-color : $agsGreen;
+    }
+  }
+
+// Reusable input mixin
+@mixin formInputMixin() {
+  @include formElementMixin();
+  height      : 38px;
+  line-height : 38px !important;
+  width       : 100%;
+  }
+
+// Reusable textarea mixin
+@mixin formTextareaMixin() {
+  @include formElementMixin();
+  width   : 100%;
+  padding : 10px 16px !important;
+  }
+
+// Reusable button mixins
+@mixin formButtonMixin($type: primary) {
+  font-size     : 14px;
+  font-weight   : 600;
+  border-radius : $mainRadius;
+  border        : 2px solid;
+  padding       : 7px 13px;
+  cursor        : pointer;
+  height        : auto;
+  box-shadow    : none !important;
+  outline       : none !important;
+
+  @if ($type == primary) {
+    color        : $whiteColor !important;
+    background   : $agsOrange !important;
+    border-color : $agsOrange !important;
+    &:hover {
+      background   : $agsDarkOrange !important;
+      border-color : $agsDarkOrange !important;
+      }
+    }
+
+  @if ($type == secondary) {
+    color        : $whiteColor !important;
+    background   : $agsGreen !important;
+    border-color : $agsGreen !important;
+    &:hover {
+      background-color : $agsDarkGreen !important;
+      border-color     : $agsDarkGreen !important;
+      }
+    }
+
+  @if ($type == dark) {
+    color        : $whiteColor !important;
+    background   : $agsDarkGrey !important;
+    border-color : $agsDarkGrey !important;
+    &:hover {
+      background-color : $agsLightGrey !important;
+      border-color     : $agsLightGrey !important;
+      }
+    }
+
+  @if ($type == delete) {
+    color        : $whiteColor !important;
+    background   : $danger !important;
+    border-color : $danger !important;
+    &:hover {
+      background-color : #E46261 !important;
+      border-color     : #E46261 !important;
+      }
+    }
+  }
+
+.ags-xoiwcp-button-primary {
+  @include formButtonMixin('primary');
+  }
+
+.ags-xoiwcp-button-secondary {
+  @include formButtonMixin('secondary');
+  }
+
+.ags-xoiwcp-button-dark {
+  @include formButtonMixin('dark');
+  }
+
+.ags-xoiwcp-button-delete {
+  @include formButtonMixin('delete');
+  }
+
+// Reusable radio input mixin
+@mixin formRadioMixin() {
+  background-color   : #FDFDFD !important;
+  border             : none;
+  border-radius      : 50%;
+  box-shadow         : inset 0 0 0 1px $darkBorderColor !important;
+  cursor             : pointer;
+  font               : inherit;
+  height             : 20px !important;
+  outline            : none;
+  width              : 21px !important;
+  -moz-appearance    : none;
+  -webkit-appearance : none;
+  margin-right       : 10px;
+  padding            : 0 !important;
+
+  &:checked {
+    background-color   : white;
+    box-shadow         : inset 0 0 0 5px $agsGreen !important;
+    -webkit-transition : background .15s, box-shadow .1s;
+    transition         : background .15s, box-shadow .1s;
+
+    &:before {
+      display : none !important;
+      }
+    }
+  }
+
+@mixin formCheckboxMixin() {
+  border-width     : 1px;
+  background-color : #FDFDFD;
+  border-color     : $darkBorderColor;
+  border-radius    : $mainRadius;
+  box-shadow       : none;
+  height           : 22px;
+  width            : 22px;
+  min-width        : 22px;
+  max-width        : 22px;
+  margin           : 0 8px 0 0;
+
+  &:before {
+    margin     : 0 !important;
+    font-size  : 21px;
+    width      : 100%;
+    text-align : center;
+    }
+
+  &:hover {
+    border-color : $darkBorderColor;
+    }
+
+  &:checked {
+    &:before {
+      content : url(../images/check.svg);
+      }
+    }
+
+  }
+
+@mixin formLabelMixin($type: false) {
+  font-size   : 14px;
+  font-weight : 600;
+  line-height : 1.5;
+  color       : $baseHeaderColor;
+
+  @if ($type == inline) {
+    display : inline-block;
+    }
+
+  @if ($type == block) {
+    display       : block;
+    margin-bottom : 5px;
+    }
+  }
+
+// ------------------------------------------------------------------------------------------- //
+//                                       Notification Mixins
+// ------------------------------------------------------------------------------------------- //
+
+@mixin notificationMixin($type: general) {
+  border-width  : 0 0 0 4px !important;
+  border-style  : solid;
+  padding       : 10px 15px !important;
+  line-height   : 1.5;
+  font-size     : 15px !important;
+  color         : $baseFontColor !important;
+  box-shadow    : $boxShadow;
+  position      : relative;
+  border-radius : $mainRadius;
+
+  a {
+    color       : inherit !important;
+    font-weight : 700;
+    }
+
+  @if ($type == general) {
+    background-color : #E3F6FF !important;
+    border-color     : $neonBlueDark;
+    }
+  @if ($type == error) {
+    background-color : #FFE5E5 !important;
+    border-color     : $danger;
+    }
+  @if ($type == warning) {
+    background-color : #FEF6E3 !important;
+    border-color     : $warning;
+    }
+  @if ($type == success) {
+    background-color : #ECF8F2 !important;
+    border-color     : $success;
+    }
+  }
