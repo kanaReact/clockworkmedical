@@ -342,6 +342,43 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Meeting Tab Endpoints
+    register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/overview', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_meeting_overview',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/register', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_meeting_register',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/timetable', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_meeting_timetable',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/speakers', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_meeting_speakers',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/venue', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_meeting_venue',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/sponsors', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_meeting_sponsors',
+        'permission_callback' => '__return_true',
+    ]);
+
     // User List Endpoints (Admin)
     register_rest_route( $namespace_custom, '/customers', [
         'methods'             => 'GET',
@@ -598,6 +635,699 @@ function clockwork_get_person_data( $person ) {
         'image'      => $image,
         'bio_teaser' => wp_strip_all_tags( get_field( 'bio_teaser', $person_id ) ),
     ];
+}
+
+/**
+ * Get product variations for variable products
+ *
+ * @param WC_Product $product Product object
+ * @return array Variations data
+ */
+function clockwork_get_product_variations( $product ) {
+    if ( ! $product->is_type( 'variable' ) ) {
+        return [];
+    }
+
+    $variations = [];
+    $variation_ids = $product->get_children();
+
+    foreach ( $variation_ids as $variation_id ) {
+        $variation = wc_get_product( $variation_id );
+        if ( ! $variation || ! $variation->exists() ) {
+            continue;
+        }
+
+        $attributes = $variation->get_variation_attributes();
+        $variation_data = [
+            'id'              => $variation_id,
+            'sku'             => $variation->get_sku(),
+            'price'           => $variation->get_price(),
+            'regular_price'   => $variation->get_regular_price(),
+            'sale_price'      => $variation->get_sale_price() ?: null,
+            'is_in_stock'     => $variation->is_in_stock(),
+            'stock_quantity'  => $variation->get_stock_quantity(),
+            'stock_status'    => $variation->get_stock_status(),
+            'attributes'      => [],
+            'description'     => $variation->get_description(),
+            'image'           => wp_get_attachment_url( $variation->get_image_id() ),
+        ];
+
+        // Format attributes nicely
+        foreach ( $attributes as $attr_name => $attr_value ) {
+            $attr_label = wc_attribute_label( str_replace( 'attribute_', '', $attr_name ), $product );
+            $variation_data['attributes'][] = [
+                'name'  => $attr_label,
+                'slug'  => $attr_name,
+                'value' => $attr_value,
+            ];
+        }
+
+        $variations[] = $variation_data;
+    }
+
+    return $variations;
+}
+
+/**
+ * Get product attributes
+ *
+ * @param WC_Product $product Product object
+ * @return array Attributes data
+ */
+function clockwork_get_product_attributes( $product ) {
+    $attributes = [];
+    $product_attributes = $product->get_attributes();
+
+    foreach ( $product_attributes as $attr_name => $attribute ) {
+        $attr_data = [
+            'name'    => wc_attribute_label( $attr_name, $product ),
+            'slug'    => $attr_name,
+            'options' => [],
+        ];
+
+        if ( $attribute->is_taxonomy() ) {
+            $terms = wc_get_product_terms( $product->get_id(), $attr_name, [ 'fields' => 'all' ] );
+            foreach ( $terms as $term ) {
+                $attr_data['options'][] = [
+                    'id'    => $term->term_id,
+                    'name'  => $term->name,
+                    'slug'  => $term->slug,
+                ];
+            }
+        } else {
+            $options = $attribute->get_options();
+            foreach ( $options as $option ) {
+                $attr_data['options'][] = [
+                    'id'    => sanitize_title( $option ),
+                    'name'  => $option,
+                    'slug'  => sanitize_title( $option ),
+                ];
+            }
+        }
+
+        $attributes[] = $attr_data;
+    }
+
+    return $attributes;
+}
+
+/**
+ * Get Extra Product Options from TM EPO plugin
+ *
+ * @param int $product_id Product ID
+ * @return array Extra product options
+ */
+function clockwork_get_extra_product_options( $product_id ) {
+    $options = [];
+
+    // Check if THEMECOMPLETE_EPO function exists
+    if ( ! function_exists( 'THEMECOMPLETE_EPO' ) ) {
+        return $options;
+    }
+
+    try {
+        $epo = THEMECOMPLETE_EPO();
+        if ( ! method_exists( $epo, 'get_product_tm_epos' ) ) {
+            return $options;
+        }
+
+        $epo_data = $epo->get_product_tm_epos( $product_id, '', false, false );
+
+        if ( empty( $epo_data ) ) {
+            return $options;
+        }
+
+        // Process global options - TM EPO stores data in a nested builder structure
+        if ( ! empty( $epo_data['global'] ) && is_array( $epo_data['global'] ) ) {
+            foreach ( $epo_data['global'] as $priority => $priority_sections ) {
+                if ( ! is_array( $priority_sections ) ) {
+                    continue;
+                }
+                foreach ( $priority_sections as $product_id_key => $product_data ) {
+                    if ( ! is_array( $product_data ) || ! isset( $product_data['sections'] ) ) {
+                        continue;
+                    }
+
+                    // Loop through sections
+                    foreach ( $product_data['sections'] as $section ) {
+                        if ( ! is_array( $section ) || ! isset( $section['elements'] ) ) {
+                            continue;
+                        }
+
+                        $section_label = $section['label'] ?? '';
+
+                        // Loop through elements in section
+                        foreach ( $section['elements'] as $element ) {
+                            if ( ! is_array( $element ) || ! isset( $element['builder'] ) ) {
+                                continue;
+                            }
+
+                            $builder = $element['builder'];
+                            $parsed_options = clockwork_parse_epo_builder( $builder );
+
+                            foreach ( $parsed_options as $opt ) {
+                                // Fallback to section label if element label is empty
+                                if ( empty( $opt['label'] ) && ! empty( $section_label ) ) {
+                                    $opt['label'] = $section_label;
+                                }
+                                $options[] = $opt;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process local options
+        if ( ! empty( $epo_data['local'] ) && is_array( $epo_data['local'] ) ) {
+            foreach ( $epo_data['local'] as $section ) {
+                if ( ! is_array( $section ) ) {
+                    continue;
+                }
+                
+                $section_label = $section['label'] ?? '';
+
+                if ( isset( $section['elements'] ) && is_array( $section['elements'] ) ) {
+                    foreach ( $section['elements'] as $element ) {
+                        if ( isset( $element['builder'] ) ) {
+                            $parsed = clockwork_parse_epo_builder( $element['builder'] );
+                            foreach ( $parsed as $opt ) {
+                                // Fallback to section label if element label is empty
+                                if ( empty( $opt['label'] ) && ! empty( $section_label ) ) {
+                                    $opt['label'] = $section_label;
+                                }
+                                $options[] = $opt;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    } catch ( Exception $e ) {
+        // Silently fail
+    }
+
+    // Filter options by label
+    $final_options = [];
+    $seen_labels = [];
+
+    foreach ( $options as $opt ) {
+        $label = isset( $opt['label'] ) ? trim( $opt['label'] ) : '';
+
+        // Skip if label is empty
+        if ( empty( $label ) ) {
+            continue;
+        }
+
+        // Skip if label already seen
+        if ( isset( $seen_labels[ $label ] ) ) {
+            continue;
+        }
+
+        $seen_labels[ $label ] = true;
+        $final_options[] = $opt;
+    }
+
+    return $final_options;
+}
+
+/**
+ * Parse TM EPO builder structure to extract options
+ * The builder stores element data as indexed arrays where each index represents an element
+ *
+ * @param array $builder EPO builder data
+ * @return array Parsed options
+ */
+function clockwork_parse_epo_builder( $builder ) {
+    $options = [];
+
+    if ( ! is_array( $builder ) || ! isset( $builder['element_type'] ) ) {
+        return $options;
+    }
+
+    $element_types = $builder['element_type'];
+    if ( ! is_array( $element_types ) ) {
+        return $options;
+    }
+
+    // Track the index for each element type (e.g., radiobuttons[0], radiobuttons[1], checkboxes[0])
+    $type_counts = [];
+
+    // Loop through each element by index
+    foreach ( $element_types as $idx => $element_type ) {
+        $type_prefix = $element_type; // e.g., 'radiobuttons', 'checkboxes', 'select'
+
+        // Determine the type-specific index
+        if ( ! isset( $type_counts[ $element_type ] ) ) {
+            $type_counts[ $element_type ] = 0;
+        }
+        $type_idx = $type_counts[ $element_type ];
+
+        // Get the header/label for this element using the type index
+        $title_key = $type_prefix . '_header_title';
+        $subtitle_key = $type_prefix . '_header_subtitle';
+        $required_key = $type_prefix . '_required';
+        $uniqid_key = $type_prefix . '_uniqid';
+
+        $label = '';
+        if ( isset( $builder[ $title_key ][ $type_idx ] ) ) {
+            $label = $builder[ $title_key ][ $type_idx ];
+        }
+
+        $description = '';
+        if ( isset( $builder[ $subtitle_key ][ $type_idx ] ) ) {
+            $description = wp_strip_all_tags( $builder[ $subtitle_key ][ $type_idx ] );
+        }
+
+        $required = false;
+        if ( isset( $builder[ $required_key ][ $type_idx ] ) ) {
+            $required = ! empty( $builder[ $required_key ][ $type_idx ] );
+        }
+
+        $uniqid = '';
+        if ( isset( $builder[ $uniqid_key ][ $type_idx ] ) ) {
+            $uniqid = $builder[ $uniqid_key ][ $type_idx ];
+        }
+
+        // Get choices for this element using the type index
+        $choices = [];
+        $options_title_key = 'multiple_' . $type_prefix . '_options_title';
+        $options_value_key = 'multiple_' . $type_prefix . '_options_value';
+        $options_price_key = 'multiple_' . $type_prefix . '_options_price';
+        $options_price_type_key = 'multiple_' . $type_prefix . '_options_price_type';
+        $options_sale_price_key = 'multiple_' . $type_prefix . '_options_sale_price';
+
+        if ( isset( $builder[ $options_title_key ][ $type_idx ] ) && is_array( $builder[ $options_title_key ][ $type_idx ] ) ) {
+            $titles = $builder[ $options_title_key ][ $type_idx ];
+            $values = $builder[ $options_value_key ][ $type_idx ] ?? [];
+            $prices = $builder[ $options_price_key ][ $type_idx ] ?? [];
+            $price_types = $builder[ $options_price_type_key ][ $type_idx ] ?? [];
+            $sale_prices = $builder[ $options_sale_price_key ][ $type_idx ] ?? [];
+
+            foreach ( $titles as $opt_idx => $opt_title ) {
+                $choice = [
+                    'label'       => $opt_title,
+                    'value'       => $values[ $opt_idx ] ?? $opt_title,
+                    'price'       => floatval( $prices[ $opt_idx ] ?? 0 ),
+                    'price_type'  => ! empty( $price_types[ $opt_idx ] ) ? $price_types[ $opt_idx ] : 'fixed',
+                    'sale_price'  => ! empty( $sale_prices[ $opt_idx ] ) ? floatval( $sale_prices[ $opt_idx ] ) : null,
+                ];
+                $choices[] = $choice;
+            }
+        }
+
+        // Map element types to a cleaner type name
+        $type_map = [
+            'radiobuttons' => 'radio',
+            'checkboxes'   => 'checkbox',
+            'selectbox'    => 'select',
+            'select'       => 'select',
+            'textfield'    => 'text',
+            'textarea'     => 'textarea',
+        ];
+        $clean_type = $type_map[ $element_type ] ?? $element_type;
+
+        $option = [
+            'id'          => $uniqid ?: uniqid( 'epo_' ),
+            'label'       => $label,
+            'description' => $description,
+            'type'        => $clean_type,
+            'required'    => $required,
+            'choices'     => $choices,
+        ];
+
+        $options[] = $option;
+
+        // Increment the type counter
+        $type_counts[ $element_type ]++;
+    }
+
+    return $options;
+}
+
+/**
+ * Parse Elementor data to extract tab content
+ *
+ * @param int $post_id Post ID
+ * @return array Tabs data with title and content
+ */
+function clockwork_parse_elementor_tabs( $post_id ) {
+    $elementor_data = get_post_meta( $post_id, '_elementor_data', true );
+
+    if ( empty( $elementor_data ) ) {
+        return [];
+    }
+
+    // Decode if it's a string
+    if ( is_string( $elementor_data ) ) {
+        $elementor_data = json_decode( $elementor_data, true );
+    }
+
+    if ( ! is_array( $elementor_data ) ) {
+        return [];
+    }
+
+    $tabs = [];
+    clockwork_extract_tabs_recursive( $elementor_data, $tabs );
+
+    return $tabs;
+}
+
+/**
+ * Recursively extract tabs content from Elementor data
+ *
+ * @param array $elements Elementor elements
+ * @param array &$tabs Reference to tabs array
+ */
+function clockwork_extract_tabs_recursive( $elements, &$tabs ) {
+    foreach ( $elements as $element ) {
+        // Check for nested-tabs widget (Elementor Pro)
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'nested-tabs' ) {
+            if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+                foreach ( $element['elements'] as $index => $tab_container ) {
+                    $tab_title = '';
+                    $tab_content = '';
+                    $tab_id = '';
+
+                    // Get tab title from settings
+                    if ( isset( $tab_container['settings']['n_tab_title'] ) ) {
+                        $tab_title = $tab_container['settings']['n_tab_title'];
+                    } elseif ( isset( $tab_container['settings']['_title'] ) ) {
+                        $tab_title = $tab_container['settings']['_title'];
+                    }
+
+                    // Generate tab ID from title
+                    $tab_id = sanitize_title( $tab_title );
+
+                    // Extract content from tab container elements
+                    if ( isset( $tab_container['elements'] ) && is_array( $tab_container['elements'] ) ) {
+                        $tab_content = clockwork_extract_content_from_elements( $tab_container['elements'] );
+                    }
+
+                    // Generate summary text from content
+                    $summary_text = clockwork_generate_tab_summary( $tab_content );
+
+                    if ( ! empty( $tab_title ) ) {
+                        $tabs[] = [
+                            'id'       => $tab_id,
+                            'title'    => $tab_title,
+                            'summary'  => $summary_text,
+                            'content'  => $tab_content,
+                            'order'    => $index + 1,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Check for classic tabs widget
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'tabs' ) {
+            if ( isset( $element['settings']['tabs'] ) && is_array( $element['settings']['tabs'] ) ) {
+                foreach ( $element['settings']['tabs'] as $index => $tab ) {
+                    $tab_title = $tab['tab_title'] ?? '';
+                    $tab_content_html = $tab['tab_content'] ?? '';
+                    $tab_id = sanitize_title( $tab_title );
+
+                    // Clean content for classic tabs
+                    $clean_text = clockwork_html_to_text( $tab_content_html );
+                    $tab_content = [];
+                    if ( ! empty( trim( $clean_text ) ) ) {
+                        $tab_content[] = [
+                            'type' => 'text',
+                            'text' => $clean_text,
+                        ];
+                    }
+
+                    if ( ! empty( $tab_title ) ) {
+                        $tabs[] = [
+                            'id'       => $tab_id,
+                            'title'    => $tab_title,
+                            'summary'  => $clean_text,
+                            'content'  => $tab_content,
+                            'order'    => $index + 1,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Recurse into nested elements
+        if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+            clockwork_extract_tabs_recursive( $element['elements'], $tabs );
+        }
+    }
+}
+
+/**
+ * Generate a plain text summary from tab content array
+ *
+ * @param array $content_parts Content parts array
+ * @return string Plain text summary
+ */
+function clockwork_generate_tab_summary( $content_parts ) {
+    if ( ! is_array( $content_parts ) ) {
+        return is_string( $content_parts ) ? clockwork_html_to_text( $content_parts ) : '';
+    }
+
+    $summary_parts = [];
+
+    foreach ( $content_parts as $part ) {
+        if ( ! is_array( $part ) ) {
+            continue;
+        }
+
+        $type = $part['type'] ?? '';
+
+        switch ( $type ) {
+            case 'heading':
+                $text = trim( $part['text'] ?? '' );
+                if ( ! empty( $text ) ) {
+                    $summary_parts[] = "\n" . $text . "\n";
+                }
+                break;
+
+            case 'text':
+                $text = trim( $part['text'] ?? '' );
+                if ( ! empty( $text ) ) {
+                    $summary_parts[] = $text;
+                }
+                break;
+
+            case 'list':
+                if ( ! empty( $part['items'] ) && is_array( $part['items'] ) ) {
+                    $list_items = [];
+                    foreach ( $part['items'] as $item ) {
+                        $item = trim( $item );
+                        if ( ! empty( $item ) ) {
+                            $list_items[] = "• " . $item;
+                        }
+                    }
+                    if ( ! empty( $list_items ) ) {
+                        $summary_parts[] = implode( "\n", $list_items );
+                    }
+                }
+                break;
+
+            // Skip buttons, images, videos in summary
+        }
+    }
+
+    $summary = implode( "\n\n", $summary_parts );
+
+    // Clean up multiple newlines
+    $summary = preg_replace( '/\n{3,}/', "\n\n", $summary );
+
+    // Clean up multiple spaces
+    $summary = preg_replace( '/[ \t]+/', ' ', $summary );
+
+    return trim( $summary );
+}
+
+/**
+ * Clean HTML content - remove unnecessary tags, classes, and styles
+ *
+ * @param string $html HTML content
+ * @return string Clean text
+ */
+function clockwork_clean_html( $html ) {
+    // Remove style tags and their content
+    $html = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', '', $html );
+
+    // Remove script tags and their content
+    $html = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $html );
+
+    // Remove all class and style attributes
+    $html = preg_replace( '/\s*(class|style|data-[a-z-]+)="[^"]*"/i', '', $html );
+
+    // Remove span tags but keep content
+    $html = preg_replace( '/<\/?span[^>]*>/i', '', $html );
+
+    // Convert bullet points
+    $html = str_replace( '•', '- ', $html );
+
+    // Clean up whitespace
+    $html = preg_replace( '/\s+/', ' ', $html );
+
+    return trim( $html );
+}
+
+/**
+ * Convert HTML to plain text
+ *
+ * @param string $html HTML content
+ * @return string Plain text
+ */
+function clockwork_html_to_text( $html ) {
+    // First clean the HTML
+    $html = clockwork_clean_html( $html );
+
+    // Convert <br> to newlines
+    $html = preg_replace( '/<br\s*\/?>/i', "\n", $html );
+
+    // Convert </p> to double newlines
+    $html = preg_replace( '/<\/p>/i', "\n\n", $html );
+
+    // Convert list items to bullet points
+    $html = preg_replace( '/<li[^>]*>/i', "• ", $html );
+    $html = preg_replace( '/<\/li>/i', "\n", $html );
+
+    // Strip remaining tags
+    $text = wp_strip_all_tags( $html );
+
+    // Clean up multiple newlines
+    $text = preg_replace( '/\n{3,}/', "\n\n", $text );
+
+    // Clean up whitespace
+    $text = preg_replace( '/[ \t]+/', ' ', $text );
+
+    return trim( $text );
+}
+
+/**
+ * Extract text content from Elementor elements
+ *
+ * @param array $elements Elementor elements
+ * @return array Combined content
+ */
+function clockwork_extract_content_from_elements( $elements ) {
+    $content_parts = [];
+
+    foreach ( $elements as $element ) {
+        // Text editor widget
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'text-editor' ) {
+            if ( isset( $element['settings']['editor'] ) ) {
+                $html = $element['settings']['editor'];
+                $text = clockwork_html_to_text( $html );
+                if ( ! empty( trim( $text ) ) ) {
+                    $content_parts[] = [
+                        'type' => 'text',
+                        'text' => $text,
+                    ];
+                }
+            }
+        }
+
+        // Heading widget
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'heading' ) {
+            if ( isset( $element['settings']['title'] ) ) {
+                $tag = $element['settings']['header_size'] ?? 'h2';
+                $title = wp_strip_all_tags( $element['settings']['title'] );
+                if ( ! empty( trim( $title ) ) ) {
+                    $content_parts[] = [
+                        'type'  => 'heading',
+                        'level' => intval( str_replace( 'h', '', $tag ) ),
+                        'text'  => trim( $title ),
+                    ];
+                }
+            }
+        }
+
+        // Image widget
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'image' ) {
+            if ( isset( $element['settings']['image']['url'] ) ) {
+                $content_parts[] = [
+                    'type'    => 'image',
+                    'url'     => $element['settings']['image']['url'],
+                    'alt'     => $element['settings']['image']['alt'] ?? '',
+                ];
+            }
+        }
+
+        // Button widget
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'button' ) {
+            $btn_text = wp_strip_all_tags( $element['settings']['text'] ?? '' );
+            $btn_url = $element['settings']['link']['url'] ?? '';
+            if ( ! empty( $btn_text ) && ! empty( $btn_url ) ) {
+                $content_parts[] = [
+                    'type' => 'button',
+                    'text' => $btn_text,
+                    'url'  => $btn_url,
+                ];
+            }
+        }
+
+        // Icon list widget
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'icon-list' ) {
+            if ( isset( $element['settings']['icon_list'] ) ) {
+                $items = [];
+                foreach ( $element['settings']['icon_list'] as $item ) {
+                    $item_text = wp_strip_all_tags( $item['text'] ?? '' );
+                    if ( ! empty( trim( $item_text ) ) ) {
+                        $items[] = trim( $item_text );
+                    }
+                }
+                if ( ! empty( $items ) ) {
+                    $content_parts[] = [
+                        'type'  => 'list',
+                        'items' => $items,
+                    ];
+                }
+            }
+        }
+
+        // Video widget
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'video' ) {
+            $video_type = $element['settings']['video_type'] ?? 'youtube';
+            $video_url = '';
+            if ( $video_type === 'youtube' && ! empty( $element['settings']['youtube_url'] ) ) {
+                $video_url = $element['settings']['youtube_url'];
+            } elseif ( $video_type === 'vimeo' && ! empty( $element['settings']['vimeo_url'] ) ) {
+                $video_url = $element['settings']['vimeo_url'];
+            }
+            if ( ! empty( $video_url ) ) {
+                $content_parts[] = [
+                    'type' => 'video',
+                    'url'  => $video_url,
+                ];
+            }
+        }
+
+        // Spacer widget - skip
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'spacer' ) {
+            continue;
+        }
+
+        // Divider widget - skip (not useful for mobile)
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'divider' ) {
+            continue;
+        }
+
+        // WooCommerce widgets - skip (handled separately in registration)
+        if ( isset( $element['widgetType'] ) && strpos( $element['widgetType'], 'woocommerce' ) !== false ) {
+            continue;
+        }
+
+        // Recurse into nested elements (containers, columns, sections)
+        if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+            $nested_content = clockwork_extract_content_from_elements( $element['elements'] );
+            if ( ! empty( $nested_content ) ) {
+                $content_parts = array_merge( $content_parts, $nested_content );
+            }
+        }
+    }
+
+    return $content_parts;
 }
 
 /**
@@ -1010,7 +1740,7 @@ function clockwork_update_profile_api( $request ) {
  */
 function clockwork_get_meetings_list( $request ) {
     $page = max( 1, intval( $request->get_param( 'page' ) ) );
-    $per_page = 5;
+    $per_page = 10;
 
     $args = [
         'post_type'      => 'product',
@@ -1035,17 +1765,43 @@ function clockwork_get_meetings_list( $request ) {
                 continue;
             }
 
+            $post_id = get_the_ID();
+
+            // Build start time string
+            $start_hour = get_post_meta( $post_id, 'WooCommerceEventsHour', true );
+            $start_minutes = get_post_meta( $post_id, 'WooCommerceEventsMinutes', true );
+            $start_period = get_post_meta( $post_id, 'WooCommerceEventsPeriod', true );
+            $start_time = null;
+            if ( $start_hour && $start_minutes ) {
+                $start_time = $start_hour . ':' . $start_minutes . ( $start_period ? ' ' . $start_period : '' );
+            }
+
+            // Build end time string
+            $end_hour = get_post_meta( $post_id, 'WooCommerceEventsHourEnd', true );
+            $end_minutes = get_post_meta( $post_id, 'WooCommerceEventsMinutesEnd', true );
+            $end_period = get_post_meta( $post_id, 'WooCommerceEventsEndPeriod', true );
+            $end_time = null;
+            if ( $end_hour && $end_minutes ) {
+                $end_time = $end_hour . ':' . $end_minutes . ( $end_period ? ' ' . $end_period : '' );
+            }
+
             $meetings[] = [
-                'id'             => get_the_ID(),
+                'id'             => $post_id,
                 'name'           => get_the_title(),
-                'date'           => get_post_meta( get_the_ID(), 'meeting_start_date', true ) ?: null,
-                'date_end'       => get_post_meta( get_the_ID(), 'meeting_end_date', true ) ?: null,
+                'date'           => get_post_meta( $post_id, 'WooCommerceEventsDate', true ) ?: null,
+                'date_end'       => get_post_meta( $post_id, 'WooCommerceEventsEndDate', true ) ?: null,
+                'time_start'     => $start_time,
+                'time_end'       => $end_time,
+                'timezone'       => get_post_meta( $post_id, 'WooCommerceEventsTimeZone', true ) ?: null,
+                'location'       => get_post_meta( $post_id, 'WooCommerceEventsLocation', true ) ?: null,
                 'price'          => $product->get_price(),
+                'currency'       => get_woocommerce_currency(),
                 'url'            => get_the_permalink(),
-                'product_id'     => get_the_ID(),
+                'product_id'     => $post_id,
                 'sku'            => $product->get_sku(),
                 'stock_status'   => $product->get_stock_status(),
                 'stock_quantity' => intval( $product->get_stock_quantity() ),
+                'is_in_stock'    => $product->is_in_stock(),
                 'description'    => get_the_excerpt(),
                 'image'          => get_the_post_thumbnail_url(),
             ];
@@ -1112,28 +1868,502 @@ function clockwork_get_single_meeting( $request ) {
         }
     }
 
+    // Build start time string
+    $start_hour = get_post_meta( $id, 'WooCommerceEventsHour', true );
+    $start_minutes = get_post_meta( $id, 'WooCommerceEventsMinutes', true );
+    $start_period = get_post_meta( $id, 'WooCommerceEventsPeriod', true );
+    $start_time = null;
+    if ( $start_hour && $start_minutes ) {
+        $start_time = $start_hour . ':' . $start_minutes . ( $start_period ? ' ' . $start_period : '' );
+    }
+
+    // Build end time string
+    $end_hour = get_post_meta( $id, 'WooCommerceEventsHourEnd', true );
+    $end_minutes = get_post_meta( $id, 'WooCommerceEventsMinutesEnd', true );
+    $end_period = get_post_meta( $id, 'WooCommerceEventsEndPeriod', true );
+    $end_time = null;
+    if ( $end_hour && $end_minutes ) {
+        $end_time = $end_hour . ':' . $end_minutes . ( $end_period ? ' ' . $end_period : '' );
+    }
+
+    // Get gallery images
+    $gallery_ids = $product->get_gallery_image_ids();
+    $gallery_images = [];
+    foreach ( $gallery_ids as $gallery_id ) {
+        $gallery_images[] = wp_get_attachment_url( $gallery_id );
+    }
+
+    // Get product categories
+    $categories = wp_get_post_terms( $id, 'product_cat', [ 'fields' => 'names' ] );
+
+    // Parse Elementor tabs content
+    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
+
+    // Get all ACF fields for the product
+    $all_acf_fields = [];
+    if ( function_exists( 'get_fields' ) ) {
+        $fields = get_fields( $id );
+        if ( $fields ) {
+            $all_acf_fields = $fields;
+        }
+    }
+
+    // Get product type
+    $product_type = $product->get_type();
+
+    // Get variations (for variable products)
+    $variations = clockwork_get_product_variations( $product );
+
+    // Get product attributes
+    $attributes = clockwork_get_product_attributes( $product );
+
+    // Get extra product options (TM EPO plugin)
+    $extra_options = clockwork_get_extra_product_options( $id );
+
+    // Build registration info with variations and options
+    $registration = [
+        'product_type'    => $product_type,
+        'price'           => $product->get_price(),
+        'regular_price'   => $product->get_regular_price(),
+        'sale_price'      => $product->get_sale_price() ?: null,
+        'currency'        => get_woocommerce_currency(),
+        'currency_symbol' => get_woocommerce_currency_symbol(),
+        'is_in_stock'     => $product->is_in_stock(),
+        'stock_status'    => $product->get_stock_status(),
+        'stock_quantity'  => intval( $product->get_stock_quantity() ),
+        'variations'      => $variations,
+        'attributes'      => $attributes,
+        'extra_options'   => $extra_options,
+    ];
+
+    // Build venue info
+    $venue = [
+        'location'    => get_post_meta( $id, 'WooCommerceEventsLocation', true ) ?: null,
+        'gps'         => get_post_meta( $id, 'WooCommerceEventsGPS', true ) ?: null,
+        'google_maps' => get_post_meta( $id, 'WooCommerceEventsGoogleMaps', true ) ?: null,
+        'directions'  => get_post_meta( $id, 'WooCommerceEventsDirections', true ) ?: null,
+    ];
+
     $meeting = [
         'id'                => $id,
         'name'              => $product->get_name(),
-        'date'              => get_post_meta( $id, 'meeting_start_date', true ) ?: null,
-        'date_end'          => get_post_meta( $id, 'meeting_end_date', true ) ?: null,
+        'slug'              => $product->get_slug(),
+        'product_type'      => $product_type,
+        'date'              => get_post_meta( $id, 'WooCommerceEventsDate', true ) ?: null,
+        'date_end'          => get_post_meta( $id, 'WooCommerceEventsEndDate', true ) ?: null,
+        'time_start'        => $start_time,
+        'time_end'          => $end_time,
+        'timezone'          => get_post_meta( $id, 'WooCommerceEventsTimeZone', true ) ?: null,
+        'location'          => get_post_meta( $id, 'WooCommerceEventsLocation', true ) ?: null,
         'price'             => $product->get_price(),
+        'regular_price'     => $product->get_regular_price(),
+        'sale_price'        => $product->get_sale_price() ?: null,
+        'currency'          => get_woocommerce_currency(),
+        'currency_symbol'   => get_woocommerce_currency_symbol(),
         'url'               => get_permalink( $id ),
         'product_id'        => $id,
         'sku'               => $product->get_sku(),
         'stock_status'      => $product->get_stock_status(),
         'stock_quantity'    => intval( $product->get_stock_quantity() ),
         'image'             => wp_get_attachment_url( $product->get_image_id() ),
+        'gallery_images'    => $gallery_images,
         'is_in_stock'       => $product->is_in_stock(),
-        'speaker'           => $speaker_data,
-        'meeting_convenors' => $convenor_data,
+        'short_description' => $product->get_short_description(),
+        'categories'        => $categories,
+        'tabs'              => $elementor_tabs,
+        'registration'      => $registration,
+        'venue'             => $venue,
+        'speakers'          => $speaker_data,
+        'convenors'         => $convenor_data,
         'sponsors'          => $sponsor_data,
+        'acf_fields'        => $all_acf_fields,
     ];
 
     return rest_ensure_response([
         'success' => true,
         'message' => 'Single Clockwork Meeting',
         'data'    => $meeting,
+    ]);
+}
+
+
+/*******************************************************************************
+ * MEETING TAB API ENDPOINTS
+ ******************************************************************************/
+
+/**
+ * GET /clockwork/v1/meetings/{id}/overview
+ * Get meeting overview tab content
+ */
+function clockwork_get_meeting_overview( $request ) {
+    $id = intval( $request->get_param( 'id' ) );
+    $product = wc_get_product( $id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Meeting not found', 404 );
+    }
+
+    // Parse Elementor tabs and find Overview tab
+    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
+    $overview_content = null;
+
+    foreach ( $elementor_tabs as $tab ) {
+        $tab_id = strtolower( $tab['id'] ?? '' );
+        $tab_title = strtolower( $tab['title'] ?? '' );
+        if ( $tab_id === 'overview' || strpos( $tab_title, 'overview' ) !== false ) {
+            $overview_content = $tab;
+            break;
+        }
+    }
+
+    // Get convenors from ACF field
+    $convenors = get_field( 'meeting_convenors', $id );
+    $convenor_data = [];
+
+    if ( $convenors ) {
+        $convenors = is_array( $convenors ) ? $convenors : [ $convenors ];
+        foreach ( $convenors as $convenor ) {
+            $convenor_data[] = clockwork_get_person_data( $convenor );
+        }
+    }
+
+    // Basic meeting info for context
+    $overview = [
+        'id'                => $id,
+        'name'              => $product->get_name(),
+        'short_description' => wp_strip_all_tags( $product->get_short_description() ),
+        'date'              => get_post_meta( $id, 'WooCommerceEventsDate', true ) ?: null,
+        'date_end'          => get_post_meta( $id, 'WooCommerceEventsEndDate', true ) ?: null,
+        'location'          => get_post_meta( $id, 'WooCommerceEventsLocation', true ) ?: null,
+        'convenors'         => $convenor_data,
+        'content'           => $overview_content ? $overview_content['content'] : [],
+        'summary'           => $overview_content ? $overview_content['summary'] : '',
+    ];
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'Meeting Overview',
+        'data'    => $overview,
+    ]);
+}
+
+/**
+ * GET /clockwork/v1/meetings/{id}/register
+ * Get meeting registration options (variations, attributes, extra product options)
+ */
+function clockwork_get_meeting_register( $request ) {
+    $id = intval( $request->get_param( 'id' ) );
+    $product = wc_get_product( $id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Meeting not found', 404 );
+    }
+
+    // Get product type
+    $product_type = $product->get_type();
+
+    // Get variations (for variable products)
+    $variations = clockwork_get_product_variations( $product );
+
+    // Get product attributes
+    $attributes = clockwork_get_product_attributes( $product );
+
+    // Get extra product options (TM EPO plugin)
+    $extra_options = clockwork_get_extra_product_options( $id );
+
+    // Parse Elementor tabs and find Register tab for additional content
+    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
+    $register_content = null;
+
+    foreach ( $elementor_tabs as $tab ) {
+        $tab_id = strtolower( $tab['id'] ?? '' );
+        $tab_title = strtolower( $tab['title'] ?? '' );
+        if ( $tab_id === 'register' || strpos( $tab_title, 'register' ) !== false ) {
+            $register_content = $tab;
+            break;
+        }
+    }
+
+    $registration = [
+        'id'              => $id,
+        'name'            => $product->get_name(),
+        'product_type'    => $product_type,
+        'price'           => $product->get_price(),
+        'regular_price'   => $product->get_regular_price(),
+        'sale_price'      => $product->get_sale_price() ?: null,
+        'currency'        => get_woocommerce_currency(),
+        'currency_symbol' => get_woocommerce_currency_symbol(),
+        'is_in_stock'     => $product->is_in_stock(),
+        'stock_status'    => $product->get_stock_status(),
+        'stock_quantity'  => intval( $product->get_stock_quantity() ),
+        'sku'             => $product->get_sku(),
+        'url'             => get_permalink( $id ),
+        'variations'      => $variations,
+        'attributes'      => $attributes,
+        'extra_options'   => $extra_options,
+        'tab_content'     => $register_content ? $register_content['content'] : [],
+        'tab_summary'     => $register_content ? $register_content['summary'] : '',
+    ];
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'Meeting Registration Options',
+        'data'    => $registration,
+    ]);
+}
+
+/**
+ * GET /clockwork/v1/meetings/{id}/timetable
+ * Get meeting timetable/schedule
+ */
+function clockwork_get_meeting_timetable( $request ) {
+    $id = intval( $request->get_param( 'id' ) );
+    $product = wc_get_product( $id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Meeting not found', 404 );
+    }
+
+    // Parse Elementor tabs and find Timetable tab
+    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
+    $timetable_content = null;
+
+    foreach ( $elementor_tabs as $tab ) {
+        $tab_id = strtolower( $tab['id'] ?? '' );
+        $tab_title = strtolower( $tab['title'] ?? '' );
+        if ( $tab_id === 'timetable' || strpos( $tab_title, 'timetable' ) !== false
+            || strpos( $tab_title, 'schedule' ) !== false || strpos( $tab_title, 'agenda' ) !== false ) {
+            $timetable_content = $tab;
+            break;
+        }
+    }
+
+    // Build start time string
+    $start_hour = get_post_meta( $id, 'WooCommerceEventsHour', true );
+    $start_minutes = get_post_meta( $id, 'WooCommerceEventsMinutes', true );
+    $start_period = get_post_meta( $id, 'WooCommerceEventsPeriod', true );
+    $start_time = null;
+    if ( $start_hour && $start_minutes ) {
+        $start_time = $start_hour . ':' . $start_minutes . ( $start_period ? ' ' . $start_period : '' );
+    }
+
+    // Build end time string
+    $end_hour = get_post_meta( $id, 'WooCommerceEventsHourEnd', true );
+    $end_minutes = get_post_meta( $id, 'WooCommerceEventsMinutesEnd', true );
+    $end_period = get_post_meta( $id, 'WooCommerceEventsEndPeriod', true );
+    $end_time = null;
+    if ( $end_hour && $end_minutes ) {
+        $end_time = $end_hour . ':' . $end_minutes . ( $end_period ? ' ' . $end_period : '' );
+    }
+
+    $timetable = [
+        'id'          => $id,
+        'name'        => $product->get_name(),
+        'date'        => get_post_meta( $id, 'WooCommerceEventsDate', true ) ?: null,
+        'date_end'    => get_post_meta( $id, 'WooCommerceEventsEndDate', true ) ?: null,
+        'time_start'  => $start_time,
+        'time_end'    => $end_time,
+        'timezone'    => get_post_meta( $id, 'WooCommerceEventsTimeZone', true ) ?: null,
+        'content'     => $timetable_content ? $timetable_content['content'] : [],
+        'summary'     => $timetable_content ? $timetable_content['summary'] : '',
+    ];
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'Meeting Timetable',
+        'data'    => $timetable,
+    ]);
+}
+
+/**
+ * GET /clockwork/v1/meetings/{id}/speakers
+ * Get meeting speakers and convenors
+ */
+function clockwork_get_meeting_speakers( $request ) {
+    $id = intval( $request->get_param( 'id' ) );
+    $product = wc_get_product( $id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Meeting not found', 404 );
+    }
+
+    // Get speakers from ACF field
+    $speakers = get_field( 'speakers', $id );
+    $speaker_data = [];
+
+    if ( $speakers ) {
+        $speakers = is_array( $speakers ) ? $speakers : [ $speakers ];
+        foreach ( $speakers as $speaker ) {
+            $person = clockwork_get_person_data( $speaker );
+            // Get additional speaker fields
+            $speaker_id = is_object( $speaker ) ? $speaker->ID : $speaker;
+            $person['bio'] = wp_strip_all_tags( get_field( 'bio', $speaker_id ) ?: '' );
+            $person['designation'] = wp_strip_all_tags( get_field( 'designation', $speaker_id ) ?: '' );
+            $person['organization'] = wp_strip_all_tags( get_field( 'organization', $speaker_id ) ?: '' );
+            $speaker_data[] = $person;
+        }
+    }
+
+    // Get convenors from ACF field
+    $convenors = get_field( 'meeting_convenors', $id );
+    $convenor_data = [];
+
+    if ( $convenors ) {
+        $convenors = is_array( $convenors ) ? $convenors : [ $convenors ];
+        foreach ( $convenors as $convenor ) {
+            $person = clockwork_get_person_data( $convenor );
+            // Get additional convenor fields
+            $convenor_id = is_object( $convenor ) ? $convenor->ID : $convenor;
+            $person['bio'] = wp_strip_all_tags( get_field( 'bio', $convenor_id ) ?: '' );
+            $person['designation'] = wp_strip_all_tags( get_field( 'designation', $convenor_id ) ?: '' );
+            $person['organization'] = wp_strip_all_tags( get_field( 'organization', $convenor_id ) ?: '' );
+            $convenor_data[] = $person;
+        }
+    }
+
+    // Parse Elementor tabs and find Speakers tab for additional content
+    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
+    $speakers_content = null;
+
+    foreach ( $elementor_tabs as $tab ) {
+        $tab_id = strtolower( $tab['id'] ?? '' );
+        $tab_title = strtolower( $tab['title'] ?? '' );
+        if ( $tab_id === 'speakers' || strpos( $tab_title, 'speaker' ) !== false ) {
+            $speakers_content = $tab;
+            break;
+        }
+    }
+
+    $data = [
+        'id'          => $id,
+        'name'        => $product->get_name(),
+        'speakers'    => $speaker_data,
+        'convenors'   => $convenor_data,
+        'tab_content' => $speakers_content ? $speakers_content['content'] : [],
+        'tab_summary' => $speakers_content ? $speakers_content['summary'] : '',
+    ];
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'Meeting Speakers',
+        'data'    => $data,
+    ]);
+}
+
+/**
+ * GET /clockwork/v1/meetings/{id}/venue
+ * Get meeting venue details
+ */
+function clockwork_get_meeting_venue( $request ) {
+    $id = intval( $request->get_param( 'id' ) );
+    $product = wc_get_product( $id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Meeting not found', 404 );
+    }
+
+    // Get venue info from FooEvents meta
+    $location = get_post_meta( $id, 'WooCommerceEventsLocation', true ) ?: null;
+    $gps = get_post_meta( $id, 'WooCommerceEventsGPS', true ) ?: null;
+    $google_maps = get_post_meta( $id, 'WooCommerceEventsGoogleMaps', true ) ?: null;
+    $directions = get_post_meta( $id, 'WooCommerceEventsDirections', true ) ?: null;
+
+    // Parse GPS coordinates if available
+    $latitude = null;
+    $longitude = null;
+    if ( $gps ) {
+        $coords = explode( ',', $gps );
+        if ( count( $coords ) === 2 ) {
+            $latitude = floatval( trim( $coords[0] ) );
+            $longitude = floatval( trim( $coords[1] ) );
+        }
+    }
+
+    // Parse Elementor tabs and find Venue tab for additional content
+    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
+    $venue_content = null;
+
+    foreach ( $elementor_tabs as $tab ) {
+        $tab_id = strtolower( $tab['id'] ?? '' );
+        $tab_title = strtolower( $tab['title'] ?? '' );
+        if ( $tab_id === 'venue' || strpos( $tab_title, 'venue' ) !== false
+            || strpos( $tab_title, 'location' ) !== false ) {
+            $venue_content = $tab;
+            break;
+        }
+    }
+
+    $venue = [
+        'id'           => $id,
+        'name'         => $product->get_name(),
+        'location'     => $location,
+        'gps'          => $gps,
+        'latitude'     => $latitude,
+        'longitude'    => $longitude,
+        'google_maps'  => $google_maps,
+        'directions'   => $directions,
+        'tab_content'  => $venue_content ? $venue_content['content'] : [],
+        'tab_summary'  => $venue_content ? $venue_content['summary'] : '',
+    ];
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'Meeting Venue',
+        'data'    => $venue,
+    ]);
+}
+
+/**
+ * GET /clockwork/v1/meetings/{id}/sponsors
+ * Get meeting sponsors
+ */
+function clockwork_get_meeting_sponsors( $request ) {
+    $id = intval( $request->get_param( 'id' ) );
+    $product = wc_get_product( $id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Meeting not found', 404 );
+    }
+
+    // Process description for sponsors
+    $desc = $product->get_description();
+    $desc = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', '', $desc );
+    $desc = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $desc );
+    $desc = str_replace( '>', ">\n", $desc );
+
+    $lines = explode( "\n", $desc );
+    $lines = array_map( 'trim', $lines );
+    $lines = array_filter( $lines, fn( $v ) => $v !== '' );
+    $lines = array_unique( $lines );
+    $desc = implode( "\n", $lines );
+
+    $sponsor_data = clockwork_parse_sponsors_from_html( $desc );
+
+    // Parse Elementor tabs and find Sponsors tab for additional content
+    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
+    $sponsors_content = null;
+
+    foreach ( $elementor_tabs as $tab ) {
+        $tab_id = strtolower( $tab['id'] ?? '' );
+        $tab_title = strtolower( $tab['title'] ?? '' );
+        if ( $tab_id === 'sponsors' || strpos( $tab_title, 'sponsor' ) !== false ) {
+            $sponsors_content = $tab;
+            break;
+        }
+    }
+
+    $data = [
+        'id'          => $id,
+        'name'        => $product->get_name(),
+        'sponsors'    => $sponsor_data,
+        'tab_content' => $sponsors_content ? $sponsors_content['content'] : [],
+        'tab_summary' => $sponsors_content ? $sponsors_content['summary'] : '',
+    ];
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'Meeting Sponsors',
+        'data'    => $data,
     ]);
 }
 
