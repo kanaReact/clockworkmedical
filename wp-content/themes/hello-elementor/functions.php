@@ -1507,6 +1507,156 @@ function clockwork_extract_content_from_elements( $elements ) {
 }
 
 /**
+ * Parse timetable content into structured schedule format
+ *
+ * @param array $content_parts Raw content parts from Elementor
+ * @return array Structured timetable with days, sessions, and items
+ */
+function clockwork_parse_timetable_content( $content_parts ) {
+    $schedule = [];
+    $current_day = null;
+    $current_session = null;
+    $pending_time = null;
+
+    foreach ( $content_parts as $part ) {
+        $type = $part['type'] ?? '';
+        $text = $part['text'] ?? '';
+
+        // Skip empty content
+        if ( empty( trim( $text ) ) ) {
+            continue;
+        }
+
+        // Check for day header (e.g., "Thursday 19th June", "Day 1", "Friday 20th June")
+        if ( $type === 'heading' ) {
+            // Check if it's a day header
+            $is_day = preg_match( '/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Day\s*\d)/i', $text );
+
+            if ( $is_day ) {
+                // Save current day if exists
+                if ( $current_day !== null ) {
+                    // Save current session to current day if exists
+                    if ( $current_session !== null ) {
+                        $current_day['sessions'][] = $current_session;
+                        $current_session = null;
+                    }
+                    $schedule[] = $current_day;
+                }
+
+                $current_day = [
+                    'day_title' => html_entity_decode( trim( $text ), ENT_QUOTES, 'UTF-8' ),
+                    'items'     => [],
+                    'sessions'  => [],
+                ];
+                $pending_time = null;
+                continue;
+            }
+
+            // Check if it's a timetable title (skip it)
+            if ( preg_match( '/timetable/i', $text ) ) {
+                continue;
+            }
+
+            // Other headings might be section titles
+            if ( $current_day === null ) {
+                $current_day = [
+                    'day_title' => 'Schedule',
+                    'items'     => [],
+                    'sessions'  => [],
+                ];
+            }
+        }
+
+        // Check for session header (e.g., "Session 1 - The MDT\n10:30 - 12:00\nModerators: ...")
+        $is_session = preg_match( '/^Session\s*\d/i', $text );
+        if ( $is_session || ( $type === 'text' && preg_match( '/^Session\s*\d/i', $text ) ) ) {
+            // Save previous session if exists
+            if ( $current_session !== null && $current_day !== null ) {
+                $current_day['sessions'][] = $current_session;
+            }
+
+            // Parse session details
+            $lines = preg_split( '/\r?\n/', $text );
+            $session_title = html_entity_decode( trim( $lines[0] ?? '' ), ENT_QUOTES, 'UTF-8' );
+            $session_time = '';
+            $session_moderators = '';
+
+            foreach ( $lines as $idx => $line ) {
+                if ( $idx === 0 ) continue;
+                $line = trim( $line );
+                if ( preg_match( '/^\d{1,2}[:.]\d{2}\s*[-–]\s*\d{1,2}[:.]\d{2}/', $line ) ) {
+                    $session_time = $line;
+                } elseif ( preg_match( '/^Moderator/i', $line ) ) {
+                    $session_moderators = html_entity_decode( $line, ENT_QUOTES, 'UTF-8' );
+                }
+            }
+
+            $current_session = [
+                'title'      => $session_title,
+                'time'       => $session_time,
+                'moderators' => $session_moderators,
+                'items'      => [],
+            ];
+
+            if ( $current_day === null ) {
+                $current_day = [
+                    'day_title' => 'Schedule',
+                    'items'     => [],
+                    'sessions'  => [],
+                ];
+            }
+            continue;
+        }
+
+        // Check for time entry (e.g., "10:00", "10:30")
+        $is_time = preg_match( '/^(\d{1,2})[:.](\d{2})$/', trim( $text ) );
+        if ( $is_time ) {
+            $pending_time = trim( $text );
+            continue;
+        }
+
+        // Regular content - associate with pending time if available
+        if ( $current_day === null ) {
+            $current_day = [
+                'day_title' => 'Schedule',
+                'items'     => [],
+                'sessions'  => [],
+            ];
+        }
+
+        // Parse text that may contain multiple lines
+        $lines = preg_split( '/\r?\n/', $text );
+        $title = html_entity_decode( trim( $lines[0] ?? '' ), ENT_QUOTES, 'UTF-8' );
+        $description = count( $lines ) > 1 ? html_entity_decode( trim( implode( "\n", array_slice( $lines, 1 ) ) ), ENT_QUOTES, 'UTF-8' ) : '';
+
+        $item = [
+            'time'        => $pending_time ?: '',
+            'title'       => $title,
+            'description' => $description,
+        ];
+
+        // Add to current session or day
+        if ( $current_session !== null ) {
+            $current_session['items'][] = $item;
+        } else {
+            $current_day['items'][] = $item;
+        }
+
+        $pending_time = null;
+    }
+
+    // Save final session and day
+    if ( $current_session !== null && $current_day !== null ) {
+        $current_day['sessions'][] = $current_session;
+    }
+    if ( $current_day !== null ) {
+        $schedule[] = $current_day;
+    }
+
+    return $schedule;
+}
+
+/**
  * Parse sponsors from HTML content
  *
  * @param string $html_content HTML content
@@ -2351,6 +2501,10 @@ function clockwork_get_meeting_timetable( $request ) {
         $end_time = $end_hour . ':' . $end_minutes . ( $end_period ? ' ' . $end_period : '' );
     }
 
+    // Parse content into structured schedule
+    $raw_content = $timetable_content ? $timetable_content['content'] : [];
+    $schedule = clockwork_parse_timetable_content( $raw_content );
+
     $timetable = [
         'id'          => $id,
         'name'        => $product->get_name(),
@@ -2359,8 +2513,7 @@ function clockwork_get_meeting_timetable( $request ) {
         'time_start'  => $start_time,
         'time_end'    => $end_time,
         'timezone'    => get_post_meta( $id, 'WooCommerceEventsTimeZone', true ) ?: null,
-        'content'     => $timetable_content ? $timetable_content['content'] : [],
-        'summary'     => $timetable_content ? $timetable_content['summary'] : '',
+        'schedule'    => $schedule,
     ];
 
     return rest_ensure_response([
