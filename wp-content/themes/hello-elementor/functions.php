@@ -2349,7 +2349,13 @@ function clockwork_get_meeting_overview( $request ) {
     if ( $convenors ) {
         $convenors = is_array( $convenors ) ? $convenors : [ $convenors ];
         foreach ( $convenors as $convenor ) {
-            $convenor_data[] = clockwork_get_person_data( $convenor );
+            $person = clockwork_get_person_data( $convenor );
+            $convenor_id = is_object( $convenor ) ? $convenor->ID : $convenor;
+            $person['bio'] = html_entity_decode( wp_strip_all_tags( get_field( 'biography', $convenor_id ) ?: '' ), ENT_QUOTES, 'UTF-8' );
+            $person['bio_teaser'] = html_entity_decode( wp_strip_all_tags( get_field( 'bio_teaser', $convenor_id ) ?: '' ), ENT_QUOTES, 'UTF-8' );
+            $person['designation'] = html_entity_decode( wp_strip_all_tags( get_field( 'designation', $convenor_id ) ?: '' ), ENT_QUOTES, 'UTF-8' );
+            $person['organization'] = html_entity_decode( wp_strip_all_tags( get_field( 'place', $convenor_id ) ?: '' ), ENT_QUOTES, 'UTF-8' );
+            $convenor_data[] = $person;
         }
     }
 
@@ -2545,56 +2551,22 @@ function clockwork_get_meeting_speakers( $request ) {
             $person = clockwork_get_person_data( $speaker );
             // Get additional speaker fields
             $speaker_id = is_object( $speaker ) ? $speaker->ID : $speaker;
-            $person['bio'] = wp_strip_all_tags( get_field( 'bio', $speaker_id ) ?: '' );
-            $person['designation'] = wp_strip_all_tags( get_field( 'designation', $speaker_id ) ?: '' );
-            $person['organization'] = wp_strip_all_tags( get_field( 'organization', $speaker_id ) ?: '' );
+            $person['bio'] = html_entity_decode( wp_strip_all_tags( get_field( 'biography', $speaker_id ) ?: '' ), ENT_QUOTES, 'UTF-8' );
+            $person['bio_teaser'] = html_entity_decode( wp_strip_all_tags( get_field( 'bio_teaser', $speaker_id ) ?: '' ), ENT_QUOTES, 'UTF-8' );
+            $person['designation'] = html_entity_decode( wp_strip_all_tags( get_field( 'designation', $speaker_id ) ?: '' ), ENT_QUOTES, 'UTF-8' );
+            $person['organization'] = html_entity_decode( wp_strip_all_tags( get_field( 'place', $speaker_id ) ?: '' ), ENT_QUOTES, 'UTF-8' );
             $speaker_data[] = $person;
         }
     }
 
-    // Get convenors from ACF field
-    $convenors = get_field( 'meeting_convenors', $id );
-    $convenor_data = [];
-
-    if ( $convenors ) {
-        $convenors = is_array( $convenors ) ? $convenors : [ $convenors ];
-        foreach ( $convenors as $convenor ) {
-            $person = clockwork_get_person_data( $convenor );
-            // Get additional convenor fields
-            $convenor_id = is_object( $convenor ) ? $convenor->ID : $convenor;
-            $person['bio'] = wp_strip_all_tags( get_field( 'bio', $convenor_id ) ?: '' );
-            $person['designation'] = wp_strip_all_tags( get_field( 'designation', $convenor_id ) ?: '' );
-            $person['organization'] = wp_strip_all_tags( get_field( 'organization', $convenor_id ) ?: '' );
-            $convenor_data[] = $person;
-        }
-    }
-
-    // Parse Elementor tabs and find Speakers tab for additional content
-    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
-    $speakers_content = null;
-
-    foreach ( $elementor_tabs as $tab ) {
-        $tab_id = strtolower( $tab['id'] ?? '' );
-        $tab_title = strtolower( $tab['title'] ?? '' );
-        if ( $tab_id === 'speakers' || strpos( $tab_title, 'speaker' ) !== false ) {
-            $speakers_content = $tab;
-            break;
-        }
-    }
-
-    $data = [
-        'id'          => $id,
-        'name'        => $product->get_name(),
-        'speakers'    => $speaker_data,
-        'convenors'   => $convenor_data,
-        'tab_content' => $speakers_content ? $speakers_content['content'] : [],
-        'tab_summary' => $speakers_content ? $speakers_content['summary'] : '',
-    ];
-
     return rest_ensure_response([
         'success' => true,
         'message' => 'Meeting Speakers',
-        'data'    => $data,
+        'data'    => [
+            'id'       => $id,
+            'name'     => $product->get_name(),
+            'speakers' => $speaker_data,
+        ],
     ]);
 }
 
