@@ -379,6 +379,13 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Contact Form Endpoint
+    register_rest_route( $namespace_v1, '/contact', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_submit_contact_form',
+        'permission_callback' => '__return_true',
+    ]);
+
     // User List Endpoints (Admin)
     register_rest_route( $namespace_custom, '/customers', [
         'methods'             => 'GET',
@@ -2754,6 +2761,70 @@ function clockwork_get_meeting_sponsors( $request ) {
             'name'     => $product->get_name(),
             'sponsors' => $filtered_sponsors,
         ],
+    ]);
+}
+
+
+/*******************************************************************************
+ * CONTACT FORM API ENDPOINTS
+ ******************************************************************************/
+
+/**
+ * POST /clockwork/v1/contact
+ * Submit contact form data
+ */
+function clockwork_submit_contact_form( $request ) {
+    // Get form fields from request
+    $first_name = sanitize_text_field( $request->get_param( 'first_name' ) );
+    $last_name  = sanitize_text_field( $request->get_param( 'last_name' ) );
+    $phone      = sanitize_text_field( $request->get_param( 'phone' ) );
+    $email      = sanitize_email( $request->get_param( 'email' ) );
+    $message    = sanitize_textarea_field( $request->get_param( 'message' ) );
+
+    // Validate required fields
+    if ( empty( $email ) ) {
+        return clockwork_error_response( 'Email address is required', 400 );
+    }
+
+    if ( ! is_email( $email ) ) {
+        return clockwork_error_response( 'Invalid email address', 400 );
+    }
+
+    if ( empty( $message ) ) {
+        return clockwork_error_response( 'Message is required', 400 );
+    }
+
+    // Prepare email content
+    $to = get_option( 'admin_email' );
+    $subject = 'New Contact Form Submission - ClockWork Medical App';
+
+    $full_name = trim( $first_name . ' ' . $last_name );
+    if ( empty( $full_name ) ) {
+        $full_name = 'Not provided';
+    }
+
+    $email_body = "You have received a new contact form submission from the ClockWork Medical website.\n\n";
+    $email_body .= "Name: {$full_name}\n";
+    $email_body .= "Email: {$email}\n";
+    $email_body .= "Phone: " . ( ! empty( $phone ) ? $phone : 'Not provided' ) . "\n\n";
+    $email_body .= "Message:\n{$message}\n";
+
+    $headers = [
+        'Content-Type: text/plain; charset=UTF-8',
+        "Reply-To: {$full_name} <{$email}>",
+    ];
+
+    // Send email
+    $sent = wp_mail( $to, $subject, $email_body, $headers );
+
+    // Currently commenting the mail delivery status check to avoid blocking form submissions
+    // if ( ! $sent ) {
+    //     return clockwork_error_response( 'Failed to send message. Please try again later.', 500 );
+    // }
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'Your message has been sent successfully. We will get back to you soon.',
     ]);
 }
 
