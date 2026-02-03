@@ -2613,17 +2613,91 @@ function clockwork_get_meeting_venue( $request ) {
         }
     }
 
+    // Extract transport info, postcode and what3words from tab content
+    $transport = [
+        'parking' => '',
+        'train'   => '',
+        'airport' => '',
+    ];
+    $postcode = '';
+    $what3words = '';
+
+    $tab_content = $venue_content ? $venue_content['content'] : [];
+
+    foreach ( $tab_content as $item ) {
+        if ( ( $item['type'] ?? '' ) === 'text' && ! empty( $item['text'] ) ) {
+            $text = html_entity_decode( $item['text'], ENT_QUOTES, 'UTF-8' );
+            $text_lower = strtolower( $text );
+
+            // Check what this text block is primarily about
+            $has_parking = stripos( $text, 'parking' ) !== false || stripos( $text, 'charger' ) !== false;
+            $has_train = stripos( $text, 'train' ) !== false || stripos( $text, 'station' ) !== false;
+            $has_airport = stripos( $text, 'airport' ) !== false;
+
+            // Dedicated train text block (mentions train but not parking in a general highlights way)
+            if ( $has_train && ! $has_airport && stripos( $text, 'Pavilions are' ) !== false ) {
+                $transport['train'] = trim( preg_replace( '/\s+/', ' ', $text ) );
+            }
+
+            // Dedicated airport text block
+            if ( $has_airport && stripos( $text, 'closest airport' ) !== false ) {
+                $transport['airport'] = trim( preg_replace( '/\s+/', ' ', $text ) );
+            }
+
+            // Extract parking sentences
+            if ( $has_parking ) {
+                $sentences = preg_split( '/(?<=[.!?])\s+|\n/', $text );
+                foreach ( $sentences as $sentence ) {
+                    $sentence = trim( $sentence );
+                    if ( ( stripos( $sentence, 'parking' ) !== false || stripos( $sentence, 'charger' ) !== false )
+                        && strlen( $sentence ) > 15
+                        && stripos( $transport['parking'], $sentence ) === false ) {
+                        $transport['parking'] .= ( ! empty( $transport['parking'] ) ? ' ' : '' ) . $sentence;
+                    }
+                }
+            }
+
+            // Extract postcode (UK format)
+            if ( empty( $postcode ) && preg_match( '/\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b/i', $text, $matches ) ) {
+                $postcode = strtoupper( trim( $matches[1] ) );
+            }
+
+            // Extract What3Words (three words separated by dots)
+            if ( empty( $what3words ) && preg_match( '/\b([a-z]+\.[a-z]+\.[a-z]+)\b/i', $text, $matches ) ) {
+                $what3words = strtolower( trim( $matches[1] ) );
+            }
+        }
+    }
+
+    // Filter out transport-related items from tab_content
+    $filtered_content = [];
+    foreach ( $tab_content as $item ) {
+        if ( ( $item['type'] ?? '' ) === 'text' && ! empty( $item['text'] ) ) {
+            $text = $item['text'];
+            // Skip dedicated transport text blocks
+            if ( stripos( $text, 'Pavilions are' ) !== false && stripos( $text, 'train station' ) !== false ) {
+                continue;
+            }
+            if ( stripos( $text, 'closest airport' ) !== false ) {
+                continue;
+            }
+        }
+        $filtered_content[] = $item;
+    }
+
     $venue = [
         'id'           => $id,
         'name'         => $product->get_name(),
         'location'     => $location,
+        'postcode'     => $postcode,
+        'what3words'   => $what3words,
         'gps'          => $gps,
         'latitude'     => $latitude,
         'longitude'    => $longitude,
         'google_maps'  => $google_maps,
         'directions'   => $directions,
-        'tab_content'  => $venue_content ? $venue_content['content'] : [],
-        'tab_summary'  => $venue_content ? $venue_content['summary'] : '',
+        'transport'    => $transport,
+        'tab_content'  => $filtered_content,
     ];
 
     return rest_ensure_response([
