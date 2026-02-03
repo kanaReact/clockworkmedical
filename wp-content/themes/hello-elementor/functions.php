@@ -732,6 +732,182 @@ function clockwork_get_product_attributes( $product ) {
 }
 
 /**
+ * Extract Gravity Form ID from Elementor content
+ *
+ * @param int $post_id Post ID
+ * @return int|null Gravity Form ID or null if not found
+ */
+function clockwork_get_gravity_form_id_from_elementor( $post_id ) {
+    $elementor_data = get_post_meta( $post_id, '_elementor_data', true );
+
+    if ( empty( $elementor_data ) ) {
+        return null;
+    }
+
+    if ( is_string( $elementor_data ) ) {
+        $elementor_data = json_decode( $elementor_data, true );
+    }
+
+    if ( ! is_array( $elementor_data ) ) {
+        return null;
+    }
+
+    // Recursively search for gravityform shortcode in Register tab
+    $form_id = null;
+    clockwork_find_gravity_form_recursive( $elementor_data, $form_id, '' );
+
+    return $form_id;
+}
+
+/**
+ * Recursively find Gravity Form shortcode in Elementor elements
+ *
+ * @param array $elements Elementor elements
+ * @param int|null &$form_id Reference to form ID
+ * @param string $current_tab Current tab title
+ */
+function clockwork_find_gravity_form_recursive( $elements, &$form_id, $current_tab ) {
+    foreach ( $elements as $element ) {
+        $tab_title = $current_tab;
+
+        // Check if this is a tab with title
+        if ( isset( $element['settings']['n_tab_title'] ) ) {
+            $tab_title = $element['settings']['n_tab_title'];
+        }
+
+        // Check for shortcode widget with gravityform
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'shortcode' ) {
+            $shortcode = $element['settings']['shortcode'] ?? '';
+            // Check if it's in Register tab (or no tab context)
+            $is_register_tab = empty( $tab_title ) || stripos( $tab_title, 'register' ) !== false;
+
+            if ( $is_register_tab && preg_match( '/\[gravityform[^\]]*id=["\']?(\d+)["\']?/i', $shortcode, $matches ) ) {
+                $form_id = intval( $matches[1] );
+                return;
+            }
+        }
+
+        // Recurse into nested elements
+        if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+            clockwork_find_gravity_form_recursive( $element['elements'], $form_id, $tab_title );
+            if ( $form_id !== null ) {
+                return;
+            }
+        }
+    }
+}
+
+/**
+ * Get Gravity Form fields as structured array
+ *
+ * @param int $form_id Gravity Form ID
+ * @return array Form fields
+ */
+function clockwork_get_gravity_form_fields( $form_id ) {
+    $fields = [];
+
+    if ( ! class_exists( 'GFAPI' ) ) {
+        return $fields;
+    }
+
+    $form = GFAPI::get_form( $form_id );
+    if ( ! $form || empty( $form['fields'] ) ) {
+        return $fields;
+    }
+
+    foreach ( $form['fields'] as $field ) {
+        $field_data = [
+            'id'          => (string) $field->id,
+            'label'       => $field->label,
+            'type'        => clockwork_map_gravity_field_type( $field->type ),
+            'required'    => (bool) $field->isRequired,
+            'description' => $field->description ?? '',
+            'placeholder' => $field->placeholder ?? '',
+            'choices'     => [],
+        ];
+
+        // Handle name field with multiple inputs
+        if ( $field->type === 'name' && ! empty( $field->inputs ) ) {
+            $field_data['type'] = 'name';
+            $field_data['inputs'] = [];
+            foreach ( $field->inputs as $input ) {
+                if ( ! isset( $input['isHidden'] ) || ! $input['isHidden'] ) {
+                    $field_data['inputs'][] = [
+                        'id'          => (string) $input['id'],
+                        'label'       => $input['label'],
+                        'placeholder' => $input['placeholder'] ?? '',
+                    ];
+                }
+            }
+        }
+
+        // Handle fields with choices (select, radio, checkbox, multiselect)
+        if ( ! empty( $field->choices ) ) {
+            foreach ( $field->choices as $choice ) {
+                $choice_data = [
+                    'label' => $choice['text'],
+                    'value' => $choice['value'] ?? $choice['text'],
+                ];
+                if ( ! empty( $choice['price'] ) ) {
+                    $choice_data['price'] = floatval( str_replace( ['$', '£', '€', ','], '', $choice['price'] ) );
+                }
+                $field_data['choices'][] = $choice_data;
+            }
+        }
+
+        // Handle address field with multiple inputs
+        if ( $field->type === 'address' && ! empty( $field->inputs ) ) {
+            $field_data['inputs'] = [];
+            foreach ( $field->inputs as $input ) {
+                if ( ! isset( $input['isHidden'] ) || ! $input['isHidden'] ) {
+                    $field_data['inputs'][] = [
+                        'id'          => (string) $input['id'],
+                        'label'       => $input['label'],
+                        'placeholder' => $input['placeholder'] ?? '',
+                    ];
+                }
+            }
+        }
+
+        $fields[] = $field_data;
+    }
+
+    return $fields;
+}
+
+/**
+ * Map Gravity Forms field type to a simplified type
+ *
+ * @param string $gf_type Gravity Forms field type
+ * @return string Simplified type
+ */
+function clockwork_map_gravity_field_type( $gf_type ) {
+    $type_map = [
+        'text'        => 'text',
+        'textarea'    => 'textarea',
+        'select'      => 'select',
+        'multiselect' => 'multiselect',
+        'number'      => 'number',
+        'checkbox'    => 'checkbox',
+        'radio'       => 'radio',
+        'name'        => 'name',
+        'email'       => 'email',
+        'phone'       => 'phone',
+        'address'     => 'address',
+        'website'     => 'url',
+        'date'        => 'date',
+        'time'        => 'time',
+        'fileupload'  => 'file',
+        'hidden'      => 'hidden',
+        'html'        => 'html',
+        'section'     => 'section',
+        'page'        => 'page',
+    ];
+
+    return $type_map[ $gf_type ] ?? $gf_type;
+}
+
+/**
  * Get Extra Product Options from TM EPO plugin
  *
  * @param int $product_id Product ID
@@ -2049,7 +2225,7 @@ function clockwork_get_meeting_overview( $request ) {
 
 /**
  * GET /clockwork/v1/meetings/{id}/register
- * Get meeting registration options (variations, attributes, extra product options)
+ * Get meeting registration options (Gravity Form fields, or fallback to TM EPO options)
  */
 function clockwork_get_meeting_register( $request ) {
     $id = intval( $request->get_param( 'id' ) );
@@ -2068,8 +2244,26 @@ function clockwork_get_meeting_register( $request ) {
     // Get product attributes
     $attributes = clockwork_get_product_attributes( $product );
 
-    // Get extra product options (TM EPO plugin)
-    $extra_options = clockwork_get_extra_product_options( $id );
+    // Check for Gravity Form in Register tab first
+    $gravity_form_id = clockwork_get_gravity_form_id_from_elementor( $id );
+    $form_fields = [];
+    $form_source = 'none';
+
+    if ( $gravity_form_id ) {
+        // Get Gravity Form fields
+        $form_fields = clockwork_get_gravity_form_fields( $gravity_form_id );
+        if ( ! empty( $form_fields ) ) {
+            $form_source = 'gravity_forms';
+        }
+    }
+
+    // Fallback to TM EPO options if no Gravity Form found
+    if ( empty( $form_fields ) ) {
+        $form_fields = clockwork_get_extra_product_options( $id );
+        if ( ! empty( $form_fields ) ) {
+            $form_source = 'tm_epo';
+        }
+    }
 
     // Parse Elementor tabs and find Register tab for additional content
     $elementor_tabs = clockwork_parse_elementor_tabs( $id );
@@ -2100,9 +2294,10 @@ function clockwork_get_meeting_register( $request ) {
         'url'             => get_permalink( $id ),
         'variations'      => $variations,
         'attributes'      => $attributes,
-        'extra_options'   => $extra_options,
+        'form_source'     => $form_source,
+        'form_id'         => $gravity_form_id,
+        'form_fields'     => $form_fields,
         'tab_content'     => $register_content ? $register_content['content'] : [],
-        'tab_summary'     => $register_content ? $register_content['summary'] : '',
     ];
 
     return rest_ensure_response([
