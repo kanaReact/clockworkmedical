@@ -2733,31 +2733,27 @@ function clockwork_get_meeting_sponsors( $request ) {
 
     $sponsor_data = clockwork_parse_sponsors_from_html( $desc );
 
-    // Parse Elementor tabs and find Sponsors tab for additional content
-    $elementor_tabs = clockwork_parse_elementor_tabs( $id );
-    $sponsors_content = null;
-
-    foreach ( $elementor_tabs as $tab ) {
-        $tab_id = strtolower( $tab['id'] ?? '' );
-        $tab_title = strtolower( $tab['title'] ?? '' );
-        if ( $tab_id === 'sponsors' || strpos( $tab_title, 'sponsor' ) !== false ) {
-            $sponsors_content = $tab;
-            break;
+    // Filter to only include actual sponsor tiers (entries with sponsor data)
+    $filtered_sponsors = [];
+    foreach ( $sponsor_data as $tier => $sponsors ) {
+        // Only include tiers that have sponsors and look like sponsor tiers
+        if ( ! empty( $sponsors ) && (
+            stripos( $tier, 'sponsor' ) !== false ||
+            stripos( $tier, 'partner' ) !== false ||
+            stripos( $tier, 'supporter' ) !== false
+        ) ) {
+            $filtered_sponsors[ $tier ] = $sponsors;
         }
     }
-
-    $data = [
-        'id'          => $id,
-        'name'        => $product->get_name(),
-        'sponsors'    => $sponsor_data,
-        'tab_content' => $sponsors_content ? $sponsors_content['content'] : [],
-        'tab_summary' => $sponsors_content ? $sponsors_content['summary'] : '',
-    ];
 
     return rest_ensure_response([
         'success' => true,
         'message' => 'Meeting Sponsors',
-        'data'    => $data,
+        'data'    => [
+            'id'       => $id,
+            'name'     => $product->get_name(),
+            'sponsors' => $filtered_sponsors,
+        ],
     ]);
 }
 
