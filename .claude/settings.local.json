@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/xampp/php/php.exe:*)",
+      "Bash(curl:*)",
+      "Bash(ls:*)",
+      "Bash(C:xamppphpphp.exe -l wp-content/themes/hello-elementor/functions.php)",
+      "Bash(php -l:*)",
+      "Bash(/c/xampp/php/php.exe:*)"
+    ]
+  }
+}

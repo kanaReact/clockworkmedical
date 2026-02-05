@@ -386,6 +386,20 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Place Order Endpoint
+    register_rest_route( $namespace_v1, '/place-order', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_place_order',
+        'permission_callback' => '__return_true',
+    ]);
+
+    // Confirm Order Endpoint (3DS completion)
+    register_rest_route( $namespace_v1, '/confirm-order', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_confirm_order',
+        'permission_callback' => '__return_true',
+    ]);
+
     // User List Endpoints (Admin)
     register_rest_route( $namespace_custom, '/customers', [
         'methods'             => 'GET',
@@ -2974,6 +2988,658 @@ function clockwork_get_client_ip() {
     }
 
     return '0.0.0.0';
+}
+
+
+/*******************************************************************************
+ * ORDER PLACEMENT API ENDPOINTS
+ ******************************************************************************/
+
+/**
+ * Validate order items array.
+ *
+ * @param array $items Items from the request.
+ * @return array|WP_REST_Response Validated items array or error response.
+ */
+function clockwork_validate_order_items( $items ) {
+    if ( empty( $items ) || ! is_array( $items ) ) {
+        return clockwork_error_response( 'At least one item is required', 400 );
+    }
+
+    $validated = [];
+
+    foreach ( $items as $index => $item ) {
+        $product_id   = absint( $item['product_id'] ?? 0 );
+        $variation_id = absint( $item['variation_id'] ?? 0 );
+        $quantity     = absint( $item['quantity'] ?? 1 );
+
+        if ( ! $product_id ) {
+            return clockwork_error_response( "Item #{$index}: product_id is required", 400 );
+        }
+
+        $product = wc_get_product( $product_id );
+        if ( ! $product ) {
+            return clockwork_error_response( "Item #{$index}: Product not found (ID: {$product_id})", 404 );
+        }
+
+        // If variation_id is provided, validate it
+        $item_product = $product;
+        if ( $variation_id ) {
+            $variation = wc_get_product( $variation_id );
+            if ( ! $variation || $variation->get_parent_id() !== $product_id ) {
+                return clockwork_error_response( "Item #{$index}: Invalid variation (ID: {$variation_id})", 400 );
+            }
+            $item_product = $variation;
+        } elseif ( $product->is_type( 'variable' ) ) {
+            return clockwork_error_response( "Item #{$index}: variation_id is required for variable product (ID: {$product_id})", 400 );
+        }
+
+        if ( ! $item_product->is_in_stock() ) {
+            return clockwork_error_response( "Item #{$index}: Product is out of stock (ID: {$product_id})", 400 );
+        }
+
+        if ( $item_product->managing_stock() && $item_product->get_stock_quantity() < $quantity ) {
+            return clockwork_error_response( "Item #{$index}: Insufficient stock (available: {$item_product->get_stock_quantity()})", 400 );
+        }
+
+        if ( $quantity < 1 ) {
+            return clockwork_error_response( "Item #{$index}: Quantity must be at least 1", 400 );
+        }
+
+        // Validate attendees count matches quantity
+        $attendees = $item['attendees'] ?? [];
+        if ( ! empty( $attendees ) && count( $attendees ) !== $quantity ) {
+            return clockwork_error_response(
+                "Item #{$index}: Number of attendees (" . count( $attendees ) . ") must match quantity ({$quantity})",
+                400
+            );
+        }
+
+        $validated[] = [
+            'product_id'   => $product_id,
+            'variation_id' => $variation_id,
+            'quantity'     => $quantity,
+            'product'      => $item_product,
+            'parent'       => $product,
+            'epo_options'  => $item['epo_options'] ?? [],
+            'attendees'    => $attendees,
+        ];
+    }
+
+    return $validated;
+}
+
+/**
+ * Add EPO data to an order item.
+ *
+ * @param WC_Order_Item_Product $order_item The order item.
+ * @param array                 $epo_options EPO options from the request.
+ * @param WC_Product            $product The product.
+ * @return float Total EPO price addition.
+ */
+function clockwork_add_epo_to_order_item( $order_item, $epo_options, $product, $quantity ) {
+    if ( empty( $epo_options ) || ! is_array( $epo_options ) ) {
+        return 0;
+    }
+
+    $epo_cart_data   = [];
+    $epo_total_price = 0;
+    $original_price  = floatval( $product->get_price() );
+    $currency        = get_woocommerce_currency();
+
+    foreach ( $epo_options as $option ) {
+        $option_price = floatval( $option['price'] ?? 0 );
+        $price_type   = sanitize_text_field( $option['price_type'] ?? 'fixed' );
+
+        if ( 'percentage' === $price_type ) {
+            $calculated_price = $original_price * ( $option_price / 100 );
+        } else {
+            $calculated_price = $option_price;
+        }
+
+        $epo_total_price += $calculated_price;
+
+        $epo_cart_data[] = [
+            'mode'              => 'builder',
+            'cssclass'          => '',
+            'hidelabelincart'   => '',
+            'hidevalueincart'   => '',
+            'hidelabelinorder'  => '',
+            'hidevalueinorder'  => '',
+            'element'           => [
+                'type' => 'radio',
+            ],
+            'name'              => sanitize_text_field( $option['label'] ?? '' ),
+            'value'             => sanitize_text_field( $option['value'] ?? '' ),
+            'price'             => $calculated_price,
+            'price_per'         => 'product',
+            'price_type'        => $price_type,
+            'section'           => sanitize_text_field( $option['id'] ?? '' ),
+            'section_label'     => sanitize_text_field( $option['label'] ?? '' ),
+            'percentcurrenttotal' => 0,
+            'fixedcurrenttotal' => 0,
+            'quantity'          => 1,
+            'key_id'            => 0,
+            'keyvalue_id'       => 0,
+            'use_images'        => '',
+            'images'            => '',
+            'imagesp'           => '',
+            'changes_product_image' => '',
+            'multiple_values'   => '',
+            'repeater'          => '',
+            'is_taxonomy'       => 0,
+            'currency'          => $currency,
+        ];
+    }
+
+    if ( ! empty( $epo_cart_data ) ) {
+        // Store EPO meta data for WP admin display
+        $order_item->add_meta_data( '_tmcartepo_data', $epo_cart_data );
+        $order_item->add_meta_data( '_tm_epo_product_original_price', [ $original_price ] );
+        $order_item->add_meta_data( '_tm_epo_options_prices', [ $epo_total_price ] );
+        $order_item->add_meta_data( '_tm_epo', [ 1 ] );
+        $order_item->save();
+    }
+
+    return $epo_total_price;
+}
+
+/**
+ * Store FooEvents ticket data on the order.
+ *
+ * @param WC_Order $order The order.
+ * @param array    $items Validated items with attendees.
+ * @param array    $billing Billing data.
+ * @param WP_User  $user The customer.
+ */
+function clockwork_store_fooevents_tickets( $order, $items, $billing, $user ) {
+    $order_tickets    = [];
+    $tickets_per_prod = [];
+    $x                = 1; // FooEvents uses 1-based event index
+
+    foreach ( $items as $item ) {
+        $attendees = $item['attendees'];
+        if ( empty( $attendees ) ) {
+            $x++;
+            continue;
+        }
+
+        $product_id   = $item['product_id'];
+        $variation_id = $item['variation_id'];
+        $product      = $item['product'];
+
+        // Determine ticket type from variation attributes
+        $ticket_type = '';
+        if ( $variation_id && $item['product']->is_type( 'variation' ) ) {
+            $attributes = $item['product']->get_attributes();
+            $ticket_type = implode( ', ', array_filter( $attributes ) );
+        }
+
+        $y = 1; // FooEvents uses 1-based ticket index
+        foreach ( $attendees as $attendee ) {
+            $ticket = [
+                'WooCommerceEventsProductID'           => $product_id,
+                'WooCommerceEventsOrderID'             => $order->get_id(),
+                'WooCommerceEventsTicketType'          => $ticket_type,
+                'WooCommerceEventsStatus'              => 'Unpaid',
+                'WooCommerceEventsCustomerID'          => $user->ID,
+                'WooCommerceEventsAttendeeName'        => sanitize_text_field( $attendee['first_name'] ?? '' ),
+                'WooCommerceEventsAttendeeLastName'    => sanitize_text_field( $attendee['last_name'] ?? '' ),
+                'WooCommerceEventsAttendeeEmail'       => sanitize_email( $attendee['email'] ?? '' ),
+                'WooCommerceEventsAttendeeTelephone'   => sanitize_text_field( $attendee['phone'] ?? '' ),
+                'WooCommerceEventsAttendeeCompany'     => sanitize_text_field( $attendee['company'] ?? '' ),
+                'WooCommerceEventsAttendeeDesignation' => sanitize_text_field( $attendee['designation'] ?? '' ),
+                'WooCommerceEventsVariations'          => '',
+                'WooCommerceEventsVariationID'         => $variation_id ?: '',
+                'WooCommerceEventsPrice'               => wc_price( $product->get_price() ),
+                'WooCommerceEventsPurchaserFirstName'  => sanitize_text_field( $billing['first_name'] ?? '' ),
+                'WooCommerceEventsPurchaserLastName'   => sanitize_text_field( $billing['last_name'] ?? '' ),
+                'WooCommerceEventsPurchaserEmail'      => sanitize_email( $billing['email'] ?? '' ),
+                'WooCommerceEventsPurchaserPhone'      => sanitize_text_field( $billing['phone'] ?? '' ),
+            ];
+
+            // FooEvents expects nested array: $order_tickets[$event_index][$ticket_index]
+            $order_tickets[ $x ][ $y ] = $ticket;
+            $y++;
+        }
+
+        if ( isset( $tickets_per_prod[ $product_id ] ) ) {
+            $tickets_per_prod[ $product_id ] += ( $y - 1 );
+        } else {
+            $tickets_per_prod[ $product_id ] = ( $y - 1 );
+        }
+        $x++;
+    }
+
+    if ( ! empty( $order_tickets ) ) {
+        $order->update_meta_data( 'WooCommerceEventsOrderTickets', $order_tickets );
+        $order->update_meta_data( 'WooCommerceEventsTicketsPurchased', $tickets_per_prod );
+        $order->save();
+    }
+}
+
+/**
+ * Create and confirm a Stripe PaymentIntent for an order.
+ *
+ * @param WC_Order $order The WooCommerce order.
+ * @param string   $payment_method_id Stripe PaymentMethod ID from client.
+ * @return array Result with 'status' key: 'succeeded', 'requires_action', or 'error'.
+ */
+/**
+ * Set the Stripe secret key for API calls.
+ */
+function clockwork_set_stripe_key() {
+    if ( class_exists( 'WC_Stripe_API' ) ) {
+        WC_Stripe_API::set_secret_key( 'sk_test' );
+    }
+}
+
+/**
+ * Create a Stripe PaymentIntent for an order (without confirming).
+ * Returns client_secret for the mobile app to complete payment via Stripe SDK.
+ *
+ * @param WC_Order $order The WooCommerce order.
+ * @return array Result with 'status' key.
+ */
+function clockwork_create_stripe_payment_intent( $order ) {
+    if ( ! class_exists( 'WC_Stripe_API' ) ) {
+        return [
+            'status'  => 'error',
+            'message' => 'Stripe gateway is not available',
+        ];
+    }
+
+    clockwork_set_stripe_key();
+
+    $currency = strtolower( $order->get_currency() );
+    $amount   = $order->get_total();
+
+    // Convert to Stripe's smallest currency unit (cents/pence)
+    if ( class_exists( 'WC_Stripe_Helper' ) && method_exists( 'WC_Stripe_Helper', 'get_stripe_amount' ) ) {
+        $stripe_amount = WC_Stripe_Helper::get_stripe_amount( $amount, $currency );
+    } else {
+        $stripe_amount = round( $amount * 100 );
+    }
+
+    if ( $stripe_amount <= 0 ) {
+        return [
+            'status' => 'free',
+            'intent' => null,
+        ];
+    }
+
+    $intent_data = [
+        'amount'                                     => $stripe_amount,
+        'currency'                                   => $currency,
+        'automatic_payment_methods[enabled]'         => 'true',
+        'automatic_payment_methods[allow_redirects]' => 'never',
+        'description'                                => sprintf( 'Order #%d from ClockWork Medical App', $order->get_id() ),
+        'metadata[order_id]'                         => $order->get_id(),
+        'metadata[site_url]'                         => get_site_url(),
+    ];
+
+    // Add customer email for receipt
+    $billing_email = $order->get_billing_email();
+    if ( $billing_email ) {
+        $intent_data['receipt_email'] = $billing_email;
+    }
+
+    $response = WC_Stripe_API::request( $intent_data, 'payment_intents' );
+
+    if ( is_wp_error( $response ) ) {
+        return [
+            'status'  => 'error',
+            'message' => $response->get_error_message(),
+        ];
+    }
+
+    if ( ! empty( $response->error ) ) {
+        return [
+            'status'  => 'error',
+            'message' => $response->error->message ?? 'Payment intent creation failed',
+        ];
+    }
+
+    // Store intent ID on the order
+    $order->update_meta_data( '_stripe_intent_id', $response->id );
+    $order->save();
+
+    return [
+        'status'        => 'requires_payment',
+        'intent_id'     => $response->id,
+        'client_secret' => $response->client_secret,
+    ];
+}
+
+/**
+ * POST /clockwork/v1/place-order
+ * Step 1: Create order + Stripe PaymentIntent.
+ * Returns client_secret for the mobile app to complete payment via Stripe PaymentSheet.
+ */
+function clockwork_place_order( $request ) {
+    // Step 1: Authenticate
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    $params = $request->get_json_params();
+    if ( empty( $params ) ) {
+        $params = $request->get_params();
+    }
+
+    // Step 2: Validate billing
+    $billing = $params['billing'] ?? [];
+    if ( empty( $billing['first_name'] ) ) {
+        return clockwork_error_response( 'Billing first name is required', 400 );
+    }
+    if ( empty( $billing['last_name'] ) ) {
+        return clockwork_error_response( 'Billing last name is required', 400 );
+    }
+    if ( empty( $billing['email'] ) || ! is_email( $billing['email'] ) ) {
+        return clockwork_error_response( 'A valid billing email is required', 400 );
+    }
+
+    // Step 3: Validate items
+    $items = clockwork_validate_order_items( $params['items'] ?? [] );
+    if ( $items instanceof WP_REST_Response ) {
+        return $items;
+    }
+
+    $coupon_code = sanitize_text_field( $params['coupon_code'] ?? '' );
+
+    // Step 4: Create WooCommerce order
+    $order = wc_create_order( [ 'customer_id' => $user->ID ] );
+    if ( is_wp_error( $order ) ) {
+        return clockwork_error_response( 'Failed to create order: ' . $order->get_error_message(), 500 );
+    }
+
+    // Step 5: Add line items with EPO prices included in line total
+    foreach ( $items as &$item ) {
+        $product  = $item['product'];
+        $quantity = $item['quantity'];
+
+        // Calculate EPO total for this item first
+        $epo_unit_price = 0;
+        if ( ! empty( $item['epo_options'] ) ) {
+            $original_price = floatval( $product->get_price() );
+            foreach ( $item['epo_options'] as $option ) {
+                $opt_price  = floatval( $option['price'] ?? 0 );
+                $price_type = $option['price_type'] ?? 'fixed';
+                if ( 'percentage' === $price_type ) {
+                    $epo_unit_price += $original_price * ( $opt_price / 100 );
+                } else {
+                    $epo_unit_price += $opt_price;
+                }
+            }
+        }
+
+        // Add product with correct total (base price + EPO)
+        $unit_total = floatval( $product->get_price() ) + $epo_unit_price;
+        $line_total = $unit_total * $quantity;
+
+        // If store prices include tax, convert to tax-exclusive for WooCommerce
+        // WooCommerce stores line totals as tax-exclusive and calculates tax separately
+        if ( wc_prices_include_tax() && $line_total > 0 ) {
+            $tax_rates = WC_Tax::get_rates( $product->get_tax_class() );
+            $taxes     = WC_Tax::calc_tax( $line_total, $tax_rates, true );
+            $tax_total = array_sum( $taxes );
+            $line_total = $line_total - $tax_total;
+        }
+
+        $item_id = $order->add_product( $product, $quantity, [
+            'subtotal' => $line_total,
+            'total'    => $line_total,
+        ] );
+
+        if ( ! $item_id ) {
+            $order->set_status( 'cancelled' );
+            $order->save();
+            return clockwork_error_response( 'Failed to add product to order (ID: ' . $item['product_id'] . ')', 500 );
+        }
+
+        $item['order_item_id'] = $item_id;
+
+        // Store EPO meta data on the line item (for admin display)
+        if ( ! empty( $item['epo_options'] ) ) {
+            $order_item = $order->get_item( $item_id );
+            clockwork_add_epo_to_order_item( $order_item, $item['epo_options'], $product, $quantity );
+        }
+    }
+    unset( $item );
+
+    // Step 6: Set billing address
+    $billing_data = [
+        'first_name' => sanitize_text_field( $billing['first_name'] ?? '' ),
+        'last_name'  => sanitize_text_field( $billing['last_name'] ?? '' ),
+        'email'      => sanitize_email( $billing['email'] ?? '' ),
+        'phone'      => sanitize_text_field( $billing['phone'] ?? '' ),
+        'address_1'  => sanitize_text_field( $billing['address_1'] ?? '' ),
+        'address_2'  => sanitize_text_field( $billing['address_2'] ?? '' ),
+        'city'       => sanitize_text_field( $billing['city'] ?? '' ),
+        'state'      => sanitize_text_field( $billing['state'] ?? '' ),
+        'postcode'   => sanitize_text_field( $billing['postcode'] ?? '' ),
+        'country'    => sanitize_text_field( $billing['country'] ?? '' ),
+    ];
+    $order->set_address( $billing_data, 'billing' );
+    clockwork_update_user_billing( $user->ID, $billing_data );
+
+    // Step 7: Apply coupon
+    if ( ! empty( $coupon_code ) ) {
+        $coupon_result = $order->apply_coupon( $coupon_code );
+        if ( is_wp_error( $coupon_result ) ) {
+            $order->set_status( 'cancelled' );
+            $order->save();
+            return clockwork_error_response( 'Invalid coupon: ' . $coupon_result->get_error_message(), 400 );
+        }
+    }
+
+    // Step 8: Calculate totals (EPO prices already included in line item totals)
+    $order->calculate_totals();
+
+    // Set payment method info
+    $order->set_payment_method( 'stripe' );
+    $order->set_payment_method_title( 'Credit Card (Stripe)' );
+    $order->add_order_note( 'Order created via ClockWork Medical App API.' );
+
+    // Step 9: Store FooEvents tickets (status Unpaid until payment confirmed)
+    clockwork_store_fooevents_tickets( $order, $items, $billing_data, $user );
+
+    // Step 10: Handle payment
+    $order_total = floatval( $order->get_total() );
+
+    if ( $order_total <= 0 ) {
+        // Free order — complete immediately
+        $order->set_status( 'completed' );
+        $order->add_order_note( 'Free order completed via API.' );
+        $order->save();
+
+        // Update tickets to Paid
+        $tickets = $order->get_meta( 'WooCommerceEventsOrderTickets' );
+        if ( ! empty( $tickets ) && is_array( $tickets ) ) {
+            foreach ( $tickets as &$event_tickets ) {
+                if ( is_array( $event_tickets ) ) {
+                    // Check if this is a nested array (event -> tickets) or a flat ticket
+                    $first_val = reset( $event_tickets );
+                    if ( is_array( $first_val ) ) {
+                        // Nested format: $tickets[$x][$y] = ticket
+                        foreach ( $event_tickets as &$ticket ) {
+                            $ticket['WooCommerceEventsStatus'] = 'Paid';
+                        }
+                        unset( $ticket );
+                    } else {
+                        // Flat format: $tickets[$key] = ticket (single ticket array)
+                        $event_tickets['WooCommerceEventsStatus'] = 'Paid';
+                    }
+                }
+            }
+            unset( $event_tickets );
+            $order->update_meta_data( 'WooCommerceEventsOrderTickets', $tickets );
+            $order->save();
+        }
+
+        return clockwork_success_response( 'Order placed successfully.', [
+            'order_id'        => $order->get_id(),
+            'order_status'    => 'completed',
+            'order_total'     => $order->get_total(),
+            'currency'        => $order->get_currency(),
+            'requires_payment' => false,
+        ] );
+    }
+
+    // Create Stripe PaymentIntent (not confirmed — app will confirm via Stripe SDK)
+    $payment_result = clockwork_create_stripe_payment_intent( $order );
+
+    if ( 'error' === $payment_result['status'] ) {
+        $order->set_status( 'failed' );
+        $order->add_order_note( 'PaymentIntent creation failed: ' . $payment_result['message'] );
+        $order->save();
+        return clockwork_error_response( $payment_result['message'], 402 );
+    }
+
+    // Order awaits payment from the app
+    $order->set_status( 'pending' );
+    $order->add_order_note( 'Awaiting payment via Stripe PaymentSheet. Intent: ' . $payment_result['intent_id'] );
+    $order->save();
+
+    return clockwork_success_response( 'Order created. Complete payment using the client_secret.', [
+        'order_id'                     => $order->get_id(),
+        'order_status'                 => 'pending',
+        'order_total'                  => $order->get_total(),
+        'currency'                     => $order->get_currency(),
+        'requires_payment'             => true,
+        'payment_intent_id'            => $payment_result['intent_id'],
+        'payment_intent_client_secret' => $payment_result['client_secret'],
+    ] );
+}
+
+/**
+ * POST /clockwork/v1/confirm-order
+ * Step 2: Called after the mobile app completes payment via Stripe PaymentSheet.
+ * Verifies the PaymentIntent status and finalizes the order.
+ */
+function clockwork_confirm_order( $request ) {
+    // Authenticate
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    $params = $request->get_json_params();
+    if ( empty( $params ) ) {
+        $params = $request->get_params();
+    }
+
+    $order_id          = absint( $params['order_id'] ?? 0 );
+    $payment_intent_id = sanitize_text_field( $params['payment_intent_id'] ?? '' );
+
+    if ( ! $order_id ) {
+        return clockwork_error_response( 'order_id is required', 400 );
+    }
+
+    if ( empty( $payment_intent_id ) ) {
+        return clockwork_error_response( 'payment_intent_id is required', 400 );
+    }
+
+    $order = wc_get_order( $order_id );
+    if ( ! $order ) {
+        return clockwork_error_response( 'Order not found', 404 );
+    }
+
+    // Verify order belongs to this user
+    if ( (int) $order->get_customer_id() !== $user->ID ) {
+        return clockwork_error_response( 'You do not have permission to confirm this order', 403 );
+    }
+
+    // Verify the intent ID matches
+    $stored_intent_id = $order->get_meta( '_stripe_intent_id' );
+    if ( $stored_intent_id !== $payment_intent_id ) {
+        return clockwork_error_response( 'Payment intent does not match this order', 400 );
+    }
+
+    // Check PaymentIntent status from Stripe
+    if ( ! class_exists( 'WC_Stripe_API' ) ) {
+        return clockwork_error_response( 'Stripe gateway is not available', 500 );
+    }
+
+    clockwork_set_stripe_key();
+
+    $response = WC_Stripe_API::request( [], 'payment_intents/' . $payment_intent_id, 'GET' );
+
+    if ( is_wp_error( $response ) ) {
+        return clockwork_error_response( 'Failed to verify payment: ' . $response->get_error_message(), 500 );
+    }
+
+    if ( ! empty( $response->error ) ) {
+        return clockwork_error_response( 'Payment verification failed: ' . ( $response->error->message ?? 'Unknown error' ), 400 );
+    }
+
+    if ( 'succeeded' === $response->status ) {
+        // Get charge ID
+        $charge_id = '';
+        if ( ! empty( $response->latest_charge ) ) {
+            $charge_id = is_object( $response->latest_charge ) ? $response->latest_charge->id : $response->latest_charge;
+        }
+        if ( $charge_id ) {
+            $order->update_meta_data( '_stripe_charge_id', $charge_id );
+            $order->update_meta_data( '_stripe_charge_captured', 'yes' );
+            $order->set_transaction_id( $charge_id );
+        }
+
+        $order->set_status( 'completed' );
+        $order->add_order_note( 'Payment confirmed via Stripe PaymentSheet (API). Intent: ' . $payment_intent_id );
+        $order->save();
+
+        // Update FooEvents ticket statuses to Paid
+        $tickets = $order->get_meta( 'WooCommerceEventsOrderTickets' );
+        if ( ! empty( $tickets ) && is_array( $tickets ) ) {
+            foreach ( $tickets as &$event_tickets ) {
+                if ( is_array( $event_tickets ) ) {
+                    // Check if this is a nested array (event -> tickets) or a flat ticket
+                    $first_val = reset( $event_tickets );
+                    if ( is_array( $first_val ) ) {
+                        // Nested format: $tickets[$x][$y] = ticket
+                        foreach ( $event_tickets as &$ticket ) {
+                            $ticket['WooCommerceEventsStatus'] = 'Paid';
+                        }
+                        unset( $ticket );
+                    } else {
+                        // Flat format: $tickets[$key] = ticket (single ticket array)
+                        $event_tickets['WooCommerceEventsStatus'] = 'Paid';
+                    }
+                }
+            }
+            unset( $event_tickets );
+            $order->update_meta_data( 'WooCommerceEventsOrderTickets', $tickets );
+            $order->save();
+        }
+
+        return clockwork_success_response( 'Payment confirmed. Order is complete.', [
+            'order_id'     => $order->get_id(),
+            'order_status' => 'completed',
+            'order_total'  => $order->get_total(),
+            'currency'     => $order->get_currency(),
+        ] );
+    }
+
+    if ( in_array( $response->status, [ 'requires_payment_method', 'canceled' ], true ) ) {
+        $order->set_status( 'failed' );
+        $order->add_order_note( 'Payment failed via Stripe PaymentSheet (API). Status: ' . $response->status );
+        $order->save();
+
+        return clockwork_error_response( 'Payment failed. Please try again with a different payment method.', 402 );
+    }
+
+    if ( 'requires_action' === $response->status ) {
+        return clockwork_success_response( 'Payment still requires authentication.', [
+            'order_id'                     => $order->get_id(),
+            'order_status'                 => 'pending',
+            'requires_action'              => true,
+            'payment_intent_client_secret' => $response->client_secret,
+        ] );
+    }
+
+    return clockwork_error_response( 'Unexpected payment status: ' . $response->status, 500 );
 }
 
 
