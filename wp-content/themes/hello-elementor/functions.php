@@ -2774,6 +2774,8 @@ function clockwork_get_meeting_sponsors( $request ) {
  * Submit contact form data
  */
 function clockwork_submit_contact_form( $request ) {
+    global $wpdb;
+
     // Get form fields from request
     $first_name = sanitize_text_field( $request->get_param( 'first_name' ) );
     $last_name  = sanitize_text_field( $request->get_param( 'last_name' ) );
@@ -2793,6 +2795,9 @@ function clockwork_submit_contact_form( $request ) {
     if ( empty( $message ) ) {
         return clockwork_error_response( 'Message is required', 400 );
     }
+
+    // Store submission in Elementor submissions tables
+    $submission_stored = clockwork_store_contact_submission( $first_name, $last_name, $phone, $email, $message );
 
     // Prepare email content
     $to = get_option( 'admin_email' );
@@ -2814,18 +2819,161 @@ function clockwork_submit_contact_form( $request ) {
         "Reply-To: {$full_name} <{$email}>",
     ];
 
-    // Send email
-    $sent = wp_mail( $to, $subject, $email_body, $headers );
+    // Set a short PHPMailer timeout so it fails fast if SMTP is not configured
+    $set_mail_timeout = function( $phpmailer ) {
+        $phpmailer->Timeout = 5; // 5 seconds connection timeout
+        $phpmailer->SMTPKeepAlive = false;
+    };
+    add_action( 'phpmailer_init', $set_mail_timeout );
 
-    // Currently commenting the mail delivery status check to avoid blocking form submissions
-    // if ( ! $sent ) {
-    //     return clockwork_error_response( 'Failed to send message. Please try again later.', 500 );
-    // }
+    $sent = @wp_mail( $to, $subject, $email_body, $headers );
+
+    remove_action( 'phpmailer_init', $set_mail_timeout );
+
+    if ( ! $sent ) {
+        error_log( 'ClockWork Contact Form: wp_mail failed to send notification email.' );
+    }
 
     return rest_ensure_response([
         'success' => true,
         'message' => 'Your message has been sent successfully. We will get back to you soon.',
+        'email_sent' => $sent,
     ]);
+}
+
+/**
+ * Store contact form submission in Elementor submissions tables
+ *
+ * @param string $first_name First name
+ * @param string $last_name Last name
+ * @param string $phone Phone number
+ * @param string $email Email address
+ * @param string $message Message content
+ * @return bool|int Submission ID on success, false on failure
+ */
+function clockwork_store_contact_submission( $first_name, $last_name, $phone, $email, $message ) {
+    global $wpdb;
+
+    $submissions_table = $wpdb->prefix . 'e_submissions';
+    $values_table = $wpdb->prefix . 'e_submissions_values';
+
+    // Check if tables exist
+    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) !== $submissions_table ) {
+        return false;
+    }
+
+    // Generate unique hash ID (UUID v4 format)
+    $hash_id = sprintf(
+        '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+        mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ),
+        mt_rand( 0, 0xffff ),
+        mt_rand( 0, 0x0fff ) | 0x4000,
+        mt_rand( 0, 0x3fff ) | 0x8000,
+        mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff )
+    );
+
+    // Get next main_meta_id
+    $max_meta_id = $wpdb->get_var( "SELECT MAX(main_meta_id) FROM {$submissions_table}" );
+    $main_meta_id = ( $max_meta_id ? intval( $max_meta_id ) : 0 ) + 1;
+
+    // Get user info
+    $user_id = get_current_user_id();
+    $user_ip = clockwork_get_client_ip();
+    $user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ) : 'Mobile App';
+
+    // Current timestamps
+    $now_gmt = current_time( 'mysql', true );
+    $now_local = current_time( 'mysql', false );
+
+    // Insert main submission record
+    $submission_data = [
+        'type'                    => 'submission',
+        'hash_id'                 => $hash_id,
+        'main_meta_id'            => $main_meta_id,
+        'post_id'                 => 0,
+        'referer'                 => 'Mobile App API',
+        'referer_title'           => 'ClockWork Medical App',
+        'element_id'              => 'api_form',
+        'form_name'               => 'Contact Form (API)',
+        'campaign_id'             => 0,
+        'user_id'                 => $user_id ?: null,
+        'user_ip'                 => $user_ip,
+        'user_agent'              => $user_agent,
+        'actions_count'           => 1,
+        'actions_succeeded_count' => 1,
+        'status'                  => 'new',
+        'is_read'                 => 0,
+        'meta'                    => json_encode( [ 'source' => 'api' ] ),
+        'created_at_gmt'          => $now_gmt,
+        'updated_at_gmt'          => $now_gmt,
+        'created_at'              => $now_local,
+        'updated_at'              => $now_local,
+    ];
+
+    $inserted = $wpdb->insert( $submissions_table, $submission_data );
+
+    if ( ! $inserted ) {
+        return false;
+    }
+
+    $submission_id = $wpdb->insert_id;
+
+    // Insert form field values
+    $fields = [
+        'first_name' => $first_name,
+        'last_name'  => $last_name,
+        'phone'      => $phone,
+        'email'      => $email,
+        'message'    => $message,
+    ];
+
+    foreach ( $fields as $key => $value ) {
+        if ( ! empty( $value ) || $key === 'email' || $key === 'message' ) {
+            $wpdb->insert(
+                $values_table,
+                [
+                    'submission_id' => $submission_id,
+                    'key'           => $key,
+                    'value'         => $value,
+                ]
+            );
+        }
+    }
+
+    return $submission_id;
+}
+
+/**
+ * Get client IP address
+ *
+ * @return string Client IP address
+ */
+function clockwork_get_client_ip() {
+    $ip_keys = [
+        'HTTP_CLIENT_IP',
+        'HTTP_X_FORWARDED_FOR',
+        'HTTP_X_FORWARDED',
+        'HTTP_X_CLUSTER_CLIENT_IP',
+        'HTTP_FORWARDED_FOR',
+        'HTTP_FORWARDED',
+        'REMOTE_ADDR',
+    ];
+
+    foreach ( $ip_keys as $key ) {
+        if ( ! empty( $_SERVER[ $key ] ) ) {
+            $ip = $_SERVER[ $key ];
+            // Handle comma-separated IPs (from proxies)
+            if ( strpos( $ip, ',' ) !== false ) {
+                $ip = explode( ',', $ip )[0];
+            }
+            $ip = trim( $ip );
+            if ( filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+                return $ip;
+            }
+        }
+    }
+
+    return '0.0.0.0';
 }
 
 
