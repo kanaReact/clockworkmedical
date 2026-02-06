@@ -400,6 +400,20 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Orders List Endpoint
+    register_rest_route( $namespace_v1, '/orders', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_orders_list',
+        'permission_callback' => '__return_true',
+    ]);
+
+    // Single Order Detail Endpoint
+    register_rest_route( $namespace_v1, '/orders/(?P<id>\d+)', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_single_order',
+        'permission_callback' => '__return_true',
+    ]);
+
     // User List Endpoints (Admin)
     register_rest_route( $namespace_custom, '/customers', [
         'methods'             => 'GET',
@@ -3759,6 +3773,246 @@ function clockwork_confirm_order( $request ) {
     }
 
     return clockwork_error_response( 'Unexpected payment status: ' . $response->status, 500 );
+}
+
+
+/*******************************************************************************
+ * ORDERS LIST API ENDPOINTS
+ ******************************************************************************/
+
+/**
+ * GET /clockwork/v1/orders
+ * Get all orders for the authenticated user
+ */
+function clockwork_get_orders_list( $request ) {
+    // Authenticate user
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    // Pagination parameters
+    $page     = max( 1, intval( $request->get_param( 'page' ) ) );
+    $per_page = min( 50, max( 1, intval( $request->get_param( 'per_page' ) ?: 10 ) ) );
+    $status   = sanitize_text_field( $request->get_param( 'status' ) ?: '' );
+
+    // Build query args
+    $args = [
+        'customer_id' => $user->ID,
+        'limit'       => $per_page,
+        'paged'       => $page,
+        'orderby'     => 'date',
+        'order'       => 'DESC',
+    ];
+
+    // Filter by status if provided
+    if ( ! empty( $status ) ) {
+        $args['status'] = $status;
+    }
+
+    // Get orders
+    $orders = wc_get_orders( $args );
+
+    // Get total count for pagination
+    $count_args = [
+        'customer_id' => $user->ID,
+        'limit'       => -1,
+        'return'      => 'ids',
+    ];
+    if ( ! empty( $status ) ) {
+        $count_args['status'] = $status;
+    }
+    $total_orders = count( wc_get_orders( $count_args ) );
+    $total_pages  = ceil( $total_orders / $per_page );
+
+    // Format orders
+    $orders_data = [];
+    foreach ( $orders as $order ) {
+        $orders_data[] = clockwork_format_order_data( $order );
+    }
+
+    return clockwork_success_response( 'Orders retrieved successfully', [
+        'orders'      => $orders_data,
+        'pagination'  => [
+            'current_page' => $page,
+            'per_page'     => $per_page,
+            'total_orders' => $total_orders,
+            'total_pages'  => $total_pages,
+        ],
+    ] );
+}
+
+/**
+ * GET /clockwork/v1/orders/{id}
+ * Get single order details for the authenticated user
+ */
+function clockwork_get_single_order( $request ) {
+    // Authenticate user
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    $order_id = absint( $request->get_param( 'id' ) );
+    $order    = wc_get_order( $order_id );
+
+    if ( ! $order ) {
+        return clockwork_error_response( 'Order not found', 404 );
+    }
+
+    // Verify order belongs to this user
+    if ( (int) $order->get_customer_id() !== $user->ID ) {
+        return clockwork_error_response( 'You do not have permission to view this order', 403 );
+    }
+
+    $order_data = clockwork_format_order_data( $order, true );
+
+    return clockwork_success_response( 'Order retrieved successfully', [
+        'order' => $order_data,
+    ] );
+}
+
+/**
+ * Format order data for API response
+ *
+ * @param WC_Order $order Order object
+ * @param bool $include_full_details Include full item details
+ * @return array Formatted order data
+ */
+function clockwork_format_order_data( $order, $include_full_details = false ) {
+    $order_id = $order->get_id();
+
+    // Basic order info
+    $data = [
+        'id'              => $order_id,
+        'order_number'    => $order->get_order_number(),
+        'status'          => $order->get_status(),
+        'status_label'    => wc_get_order_status_name( $order->get_status() ),
+        'date_created'    => $order->get_date_created() ? $order->get_date_created()->format( 'Y-m-d H:i:s' ) : null,
+        'date_modified'   => $order->get_date_modified() ? $order->get_date_modified()->format( 'Y-m-d H:i:s' ) : null,
+        'total'           => $order->get_total(),
+        'subtotal'        => $order->get_subtotal(),
+        'tax_total'       => $order->get_total_tax(),
+        'discount_total'  => $order->get_discount_total(),
+        'currency'        => $order->get_currency(),
+        'payment_method'  => $order->get_payment_method(),
+        'payment_title'   => $order->get_payment_method_title(),
+        'transaction_id'  => $order->get_transaction_id(),
+        'items_count'     => $order->get_item_count(),
+    ];
+
+    // Billing address
+    $data['billing'] = [
+        'first_name' => $order->get_billing_first_name(),
+        'last_name'  => $order->get_billing_last_name(),
+        'email'      => $order->get_billing_email(),
+        'phone'      => $order->get_billing_phone(),
+        'address_1'  => $order->get_billing_address_1(),
+        'address_2'  => $order->get_billing_address_2(),
+        'city'       => $order->get_billing_city(),
+        'state'      => $order->get_billing_state(),
+        'postcode'   => $order->get_billing_postcode(),
+        'country'    => $order->get_billing_country(),
+    ];
+
+    // Order line items
+    $items = [];
+    foreach ( $order->get_items() as $item_id => $item ) {
+        $product    = $item->get_product();
+        $product_id = $item->get_product_id();
+
+        $item_data = [
+            'id'           => $item_id,
+            'product_id'   => $product_id,
+            'name'         => $item->get_name(),
+            'quantity'     => $item->get_quantity(),
+            'subtotal'     => $item->get_subtotal(),
+            'total'        => $item->get_total(),
+            'tax'          => $item->get_total_tax(),
+            'sku'          => $product ? $product->get_sku() : '',
+            'image'        => $product ? wp_get_attachment_url( $product->get_image_id() ) : null,
+        ];
+
+        // Include EPO options if present
+        if ( $include_full_details ) {
+            $epo_data = $item->get_meta( '_tmcartepo_data' );
+            if ( ! empty( $epo_data ) && is_array( $epo_data ) ) {
+                $item_data['epo_options'] = [];
+                foreach ( $epo_data as $epo ) {
+                    $item_data['epo_options'][] = [
+                        'name'   => $epo['name'] ?? '',
+                        'value'  => $epo['value'] ?? '',
+                        'price'  => $epo['price'] ?? 0,
+                    ];
+                }
+            }
+
+            // Include event details if FooEvents product
+            $event_date = get_post_meta( $product_id, 'WooCommerceEventsDate', true );
+            if ( $event_date ) {
+                $item_data['event'] = [
+                    'date'       => $event_date,
+                    'date_end'   => get_post_meta( $product_id, 'WooCommerceEventsEndDate', true ) ?: null,
+                    'location'   => get_post_meta( $product_id, 'WooCommerceEventsLocation', true ) ?: null,
+                    'timezone'   => get_post_meta( $product_id, 'WooCommerceEventsTimeZone', true ) ?: null,
+                ];
+            }
+        }
+
+        $items[] = $item_data;
+    }
+    $data['items'] = $items;
+
+    // Include tickets if present (FooEvents)
+    if ( $include_full_details ) {
+        $tickets = $order->get_meta( 'WooCommerceEventsOrderTickets' );
+        if ( ! empty( $tickets ) && is_array( $tickets ) ) {
+            $formatted_tickets = [];
+            foreach ( $tickets as $event_id => $event_tickets ) {
+                if ( is_array( $event_tickets ) ) {
+                    foreach ( $event_tickets as $ticket ) {
+                        if ( is_array( $ticket ) ) {
+                            $formatted_tickets[] = [
+                                'ticket_id'   => $ticket['WooCommerceEventsTicketID'] ?? '',
+                                'event_id'    => $event_id,
+                                'attendee'    => $ticket['WooCommerceEventsAttendeeName'] ?? '',
+                                'email'       => $ticket['WooCommerceEventsAttendeeEmail'] ?? '',
+                                'status'      => $ticket['WooCommerceEventsStatus'] ?? '',
+                                'checked_in'  => ! empty( $ticket['WooCommerceEventsCheckedIn'] ),
+                            ];
+                        }
+                    }
+                }
+            }
+            $data['tickets'] = $formatted_tickets;
+        }
+    }
+
+    // Coupons used
+    $coupons = [];
+    foreach ( $order->get_coupon_codes() as $coupon_code ) {
+        $coupons[] = $coupon_code;
+    }
+    if ( ! empty( $coupons ) ) {
+        $data['coupons'] = $coupons;
+    }
+
+    // Order notes (customer-visible only)
+    if ( $include_full_details ) {
+        $notes = wc_get_order_notes( [
+            'order_id'         => $order_id,
+            'type'             => 'customer',
+        ] );
+        $data['notes'] = array_map( function( $note ) {
+            return [
+                'id'      => $note->id,
+                'date'    => $note->date_created->format( 'Y-m-d H:i:s' ),
+                'content' => $note->content,
+            ];
+        }, $notes );
+    }
+
+    return $data;
 }
 
 
