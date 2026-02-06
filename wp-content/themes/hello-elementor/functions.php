@@ -540,8 +540,10 @@ function clockwork_get_user_memberships( $user_id ) {
  * @return array Formatted user data
  */
 function clockwork_format_user_data( $user, $include_memberships = true ) {
+    $user_id = $user->ID;
+
     $data = [
-        'id'         => $user->ID,
+        'id'         => $user_id,
         'username'   => $user->user_login,
         'email'      => $user->user_email,
         'first_name' => $user->first_name,
@@ -551,8 +553,29 @@ function clockwork_format_user_data( $user, $include_memberships = true ) {
         'role'       => $user->roles[0] ?? '',
     ];
 
+    // Add billing/address information
+    $data['billing'] = [
+        'phone'      => get_user_meta( $user_id, 'billing_phone', true ),
+        'address_1'  => get_user_meta( $user_id, 'billing_address_1', true ),
+        'address_2'  => get_user_meta( $user_id, 'billing_address_2', true ),
+        'city'       => get_user_meta( $user_id, 'billing_city', true ),
+        'state'      => get_user_meta( $user_id, 'billing_state', true ),
+        'postcode'   => get_user_meta( $user_id, 'billing_postcode', true ),
+        'country'    => get_user_meta( $user_id, 'billing_country', true ),
+    ];
+
+    // Add extended profile fields
+    $medical_specialities = get_user_meta( $user_id, 'medical_specialities', true );
+    $data['profile'] = [
+        'hospital_institution' => get_user_meta( $user_id, 'hospital_institution', true ),
+        'category'             => get_user_meta( $user_id, 'category', true ),
+        'dietary_allergies'    => get_user_meta( $user_id, 'dietary_allergies', true ),
+        'privacy_settings'     => get_user_meta( $user_id, 'privacy_settings', true ),
+        'medical_specialities' => is_array( $medical_specialities ) ? $medical_specialities : [],
+    ];
+
     if ( $include_memberships ) {
-        $data['active_memberships'] = clockwork_get_user_memberships( $user->ID );
+        $data['active_memberships'] = clockwork_get_user_memberships( $user_id );
     }
 
     return $data;
@@ -1761,13 +1784,36 @@ function clockwork_parse_sponsors_from_html( $html_content ) {
 function clockwork_register_user_api( $request ) {
     $params = $request->get_json_params();
 
+    // Basic auth fields
     $email      = sanitize_email( $params['email'] ?? '' );
     $password   = $params['password'] ?? '';
     $first_name = sanitize_text_field( $params['first_name'] ?? '' );
     $last_name  = sanitize_text_field( $params['last_name'] ?? '' );
     $username   = sanitize_user( $params['username'] ?? '' );
 
-    // Validation
+    // Extended profile fields
+    $phone                = sanitize_text_field( $params['phone'] ?? '' );
+    $address_1            = sanitize_text_field( $params['address_1'] ?? '' );
+    $address_2            = sanitize_text_field( $params['address_2'] ?? '' );
+    $city                 = sanitize_text_field( $params['city'] ?? '' );
+    $state                = sanitize_text_field( $params['state'] ?? '' );
+    $postcode             = sanitize_text_field( $params['postcode'] ?? '' );
+    $country              = sanitize_text_field( $params['country'] ?? '' );
+    $hospital_institution = sanitize_text_field( $params['hospital_institution'] ?? '' );
+    $category             = sanitize_text_field( $params['category'] ?? '' );
+    $dietary_allergies    = sanitize_textarea_field( $params['dietary_allergies'] ?? '' );
+    $privacy_settings     = sanitize_text_field( $params['privacy_settings'] ?? '' );
+
+    // Medical specialities (multiple selection - array)
+    $medical_specialities_raw = $params['medical_specialities'] ?? [];
+    $medical_specialities = [];
+    if ( is_array( $medical_specialities_raw ) ) {
+        foreach ( $medical_specialities_raw as $speciality ) {
+            $medical_specialities[] = sanitize_text_field( $speciality );
+        }
+    }
+
+    // Validation - Required fields
     if ( empty( $email ) ) {
         return clockwork_error_response( 'Email is required', 400 );
     }
@@ -1782,6 +1828,22 @@ function clockwork_register_user_api( $request ) {
 
     if ( strlen( $password ) < 6 ) {
         return clockwork_error_response( 'Password must be at least 6 characters', 400 );
+    }
+
+    if ( empty( $first_name ) ) {
+        return clockwork_error_response( 'First name is required', 400 );
+    }
+
+    if ( empty( $last_name ) ) {
+        return clockwork_error_response( 'Last name is required', 400 );
+    }
+
+    if ( empty( $hospital_institution ) ) {
+        return clockwork_error_response( 'Hospital/Institution is required', 400 );
+    }
+
+    if ( empty( $category ) ) {
+        return clockwork_error_response( 'Category is required', 400 );
     }
 
     if ( email_exists( $email ) ) {
@@ -1808,12 +1870,31 @@ function clockwork_register_user_api( $request ) {
         return clockwork_error_response( $user_id->get_error_message(), 400 );
     }
 
-    // Update user meta
+    // Update user basic info
     wp_update_user([
         'ID'         => $user_id,
         'first_name' => $first_name,
         'last_name'  => $last_name,
     ]);
+
+    // Store billing/address fields (WooCommerce standard meta keys)
+    update_user_meta( $user_id, 'billing_phone', $phone );
+    update_user_meta( $user_id, 'billing_address_1', $address_1 );
+    update_user_meta( $user_id, 'billing_address_2', $address_2 );
+    update_user_meta( $user_id, 'billing_city', $city );
+    update_user_meta( $user_id, 'billing_state', $state );
+    update_user_meta( $user_id, 'billing_postcode', $postcode );
+    update_user_meta( $user_id, 'billing_country', $country );
+    update_user_meta( $user_id, 'billing_first_name', $first_name );
+    update_user_meta( $user_id, 'billing_last_name', $last_name );
+    update_user_meta( $user_id, 'billing_email', $email );
+
+    // Store extended profile fields (custom meta keys)
+    update_user_meta( $user_id, 'hospital_institution', $hospital_institution );
+    update_user_meta( $user_id, 'category', $category );
+    update_user_meta( $user_id, 'dietary_allergies', $dietary_allergies );
+    update_user_meta( $user_id, 'privacy_settings', $privacy_settings );
+    update_user_meta( $user_id, 'medical_specialities', $medical_specialities );
 
     // Set default role as customer
     $user = new WP_User( $user_id );
@@ -2017,7 +2098,6 @@ function clockwork_get_profile_api( $request ) {
     }
 
     $user_data = clockwork_format_user_data( $user );
-    $user_data['billing'] = clockwork_get_user_billing( $user->ID );
 
     return clockwork_success_response( 'Profile retrieved successfully', [ 'data' => $user_data ] );
 }
@@ -2069,9 +2149,48 @@ function clockwork_update_profile_api( $request ) {
         clockwork_update_user_billing( $user->ID, $params['billing'] );
     }
 
+    // Update extended profile fields
+    if ( isset( $params['profile'] ) ) {
+        $profile = $params['profile'];
+
+        if ( isset( $profile['hospital_institution'] ) ) {
+            update_user_meta( $user->ID, 'hospital_institution', sanitize_text_field( $profile['hospital_institution'] ) );
+        }
+        if ( isset( $profile['category'] ) ) {
+            update_user_meta( $user->ID, 'category', sanitize_text_field( $profile['category'] ) );
+        }
+        if ( isset( $profile['dietary_allergies'] ) ) {
+            update_user_meta( $user->ID, 'dietary_allergies', sanitize_textarea_field( $profile['dietary_allergies'] ) );
+        }
+        if ( isset( $profile['privacy_settings'] ) ) {
+            update_user_meta( $user->ID, 'privacy_settings', sanitize_text_field( $profile['privacy_settings'] ) );
+        }
+        if ( isset( $profile['medical_specialities'] ) && is_array( $profile['medical_specialities'] ) ) {
+            $sanitized = array_map( 'sanitize_text_field', $profile['medical_specialities'] );
+            update_user_meta( $user->ID, 'medical_specialities', $sanitized );
+        }
+    }
+
+    // Also allow direct field updates (for convenience)
+    if ( isset( $params['hospital_institution'] ) ) {
+        update_user_meta( $user->ID, 'hospital_institution', sanitize_text_field( $params['hospital_institution'] ) );
+    }
+    if ( isset( $params['category'] ) ) {
+        update_user_meta( $user->ID, 'category', sanitize_text_field( $params['category'] ) );
+    }
+    if ( isset( $params['dietary_allergies'] ) ) {
+        update_user_meta( $user->ID, 'dietary_allergies', sanitize_textarea_field( $params['dietary_allergies'] ) );
+    }
+    if ( isset( $params['privacy_settings'] ) ) {
+        update_user_meta( $user->ID, 'privacy_settings', sanitize_text_field( $params['privacy_settings'] ) );
+    }
+    if ( isset( $params['medical_specialities'] ) && is_array( $params['medical_specialities'] ) ) {
+        $sanitized = array_map( 'sanitize_text_field', $params['medical_specialities'] );
+        update_user_meta( $user->ID, 'medical_specialities', $sanitized );
+    }
+
     $updated_user = get_user_by( 'ID', $user->ID );
     $user_data = clockwork_format_user_data( $updated_user );
-    $user_data['billing'] = clockwork_get_user_billing( $user->ID );
 
     return clockwork_success_response( 'Profile updated successfully', [ 'data' => $user_data ] );
 }
