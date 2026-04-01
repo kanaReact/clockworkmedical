@@ -363,18 +363,18 @@ class User {
 	}
 
 	/**
-	 * Get a user option with a fallback value.
+	 * Get a user option with default value as fallback.
 	 *
-	 * @param string $option   Option key.
-	 * @param int    $user_id  User ID.
-	 * @param mixed  $fallback Default fallback value.
+	 * @param string $option  - Option key.
+	 * @param int    $user_id - User ID.
+	 * @param mixed  $default - Default fallback value.
 	 *
 	 * @return mixed
 	 */
-	public static function get_user_option_with_default( $option, $user_id, $fallback ) {
+	public static function get_user_option_with_default( $option, $user_id, $default ) {
 		$value = get_user_option( $option, $user_id );
 
-		return ( false === $value ) ? $fallback : $value;
+		return ( false === $value ) ? $default : $value;
 	}
 
 	/**

@@ -9,9 +9,6 @@ use Elementor\Includes\Settings\AdminMenuItems\Getting_Started_Menu_Item;
 use Elementor\Modules\Promotions\Module as Promotions_Module;
 use Elementor\TemplateLibrary\Source_Local;
 use Elementor\Modules\Home\Module as Home_Module;
-use Elementor\Modules\EditorOne\Classes\Menu_Data_Provider;
-use Elementor\Includes\Settings\AdminMenuItems\Editor_One_Home_Menu;
-use Elementor\Includes\Settings\AdminMenuItems\Editor_One_Settings_Menu;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
@@ -69,10 +66,6 @@ class Settings extends Settings_Page {
 
 	const ADMIN_MENU_PRIORITY = 10;
 
-	const MENU_CAPABILITY_MANAGE_OPTIONS = 'manage_options';
-
-	const MENU_CAPABILITY_EDIT_POSTS = 'edit_posts';
-
 	public Home_Module $home_module;
 
 	/**
@@ -90,16 +83,14 @@ class Settings extends Settings_Page {
 
 		$menu[] = [ '', 'read', 'separator-elementor', '', 'wp-menu-separator elementor' ]; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 
-		$required_capability = $this->get_menu_capability();
-
-		if ( ! current_user_can( $required_capability ) ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
 
 		add_menu_page(
 			esc_html__( 'Elementor', 'elementor' ),
 			esc_html__( 'Elementor', 'elementor' ),
-			$required_capability,
+			'manage_options',
 			self::PAGE_ID,
 			[
 				$this,
@@ -111,9 +102,7 @@ class Settings extends Settings_Page {
 
 		if ( $this->home_module->is_experiment_active() ) {
 			add_action( 'elementor/admin/menu/register', function( Admin_Menu_Manager $admin_menu ) {
-				if ( ! $this->is_editor_one_active() ) {
-					$admin_menu->register( 'elementor-settings', new Admin_Menu_Item( $this ) );
-				}
+				$admin_menu->register( 'elementor-settings', new Admin_Menu_Item( $this ) );
 			}, 0 );
 		}
 	}
@@ -170,26 +159,8 @@ class Settings extends Settings_Page {
 	 * @access private
 	 */
 	private function register_knowledge_base_menu( Admin_Menu_Manager $admin_menu ) {
-		if ( ! Plugin::instance()->modules_manager->get_modules( 'editor-one' ) ) {
-			$admin_menu->register( 'elementor-getting-started', new Getting_Started_Menu_Item() );
-			$admin_menu->register( 'go_knowledge_base_site', new Get_Help_Menu_Item() );
-		}
-	}
-
-	private function register_editor_one_settings_menu( Menu_Data_Provider $menu_data_provider ) {
-		$menu_data_provider->register_menu( new Editor_One_Settings_Menu() );
-	}
-
-	private function register_editor_one_home_menu( Menu_Data_Provider $menu_data_provider ) {
-		$menu_data_provider->register_menu( new Editor_One_Home_Menu() );
-	}
-
-	private function is_editor_one_active(): bool {
-		return (bool) Plugin::instance()->modules_manager->get_modules( 'editor-one' );
-	}
-
-	private function get_menu_capability(): string {
-		return $this->is_editor_one_active() ? self::MENU_CAPABILITY_EDIT_POSTS : self::MENU_CAPABILITY_MANAGE_OPTIONS;
+		$admin_menu->register( 'elementor-getting-started', new Getting_Started_Menu_Item() );
+		$admin_menu->register( 'go_knowledge_base_site', new Get_Help_Menu_Item() );
 	}
 
 	/**
@@ -584,13 +555,6 @@ class Settings extends Settings_Page {
 
 		add_action( 'admin_menu', [ $this, 'register_admin_menu' ], 20 );
 
-		add_action( 'elementor/editor-one/menu/register', function ( Menu_Data_Provider $menu_data_provider ) {
-			if ( $this->home_module->is_experiment_active() ) {
-				$this->register_editor_one_settings_menu( $menu_data_provider );
-				$this->register_editor_one_home_menu( $menu_data_provider );
-			}
-		} );
-
 		add_action( 'elementor/admin/menu/register', function ( Admin_Menu_Manager $admin_menu ) {
 			$this->register_knowledge_base_menu( $admin_menu );
 		}, Promotions_Module::ADMIN_MENU_PRIORITY - 1 );
@@ -607,7 +571,6 @@ class Settings extends Settings_Page {
 			'elementor_disable_color_schemes',
 			'elementor_disable_typography_schemes',
 			'elementor_css_print_method',
-			'elementor_local_google_fonts',
 		];
 
 		foreach ( $css_settings as $option_name ) {

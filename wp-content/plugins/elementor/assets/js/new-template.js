@@ -1,3 +1,4 @@
+/*! elementor - v3.32.0 - 16-09-2025 */
 /******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
@@ -148,24 +149,15 @@ module.exports = elementorModules.common.views.modal.Layout.extend({
   },
   initialize: function initialize() {
     elementorModules.common.views.modal.Layout.prototype.initialize.apply(this, arguments);
+    var lookupControlIdPrefix = 'elementor-new-template__form__';
+    var templateTypeSelectId = "".concat(lookupControlIdPrefix, "template-type");
     this.showLogo();
     this.showContentView();
     this.initElements();
     this.lockProBehavior = new _lockPro.default(this.elements);
     this.lockProBehavior.bindEvents();
-    this.setupDynamicControlsVisibility();
-  },
-  setupDynamicControlsVisibility: function setupDynamicControlsVisibility() {
-    // eslint-disable-next-line camelcase
-    var isFormControlsDefined = 'undefined' !== typeof elementor_new_template_form_controls;
-    if (!isFormControlsDefined) {
-      return;
-    }
-    var CONTROL_ID_PREFIX = 'elementor-new-template__form__';
-    var templateTypeSelectId = "".concat(CONTROL_ID_PREFIX, "template-type");
     var dynamicControlsVisibilityListener = function dynamicControlsVisibilityListener() {
-      // eslint-disable-next-line camelcase
-      elementorAdmin.templateControls.setDynamicControlsVisibility(CONTROL_ID_PREFIX, elementor_new_template_form_controls);
+      elementorAdmin.templateControls.setDynamicControlsVisibility(lookupControlIdPrefix, elementor_new_template_form_controls);
     };
     this.getModal().onShow = function () {
       dynamicControlsVisibilityListener();
@@ -372,7 +364,7 @@ var NewTemplateModule = elementorModules.ViewModule.extend({
   getDefaultSettings: function getDefaultSettings() {
     return {
       selectors: {
-        addButton: 'a.page-title-action[href*="post-new.php?post_type=elementor_library"], #elementor-template-library-add-new'
+        addButton: '.page-title-action:first, #elementor-template-library-add-new'
       }
     };
   },
@@ -388,8 +380,7 @@ var NewTemplateModule = elementorModules.ViewModule.extend({
   },
   showModalByHash: function showModalByHash() {
     if ('#add_new' === location.hash) {
-      var _this$layout;
-      (_this$layout = this.layout) === null || _this$layout === void 0 || _this$layout.showModal();
+      this.layout.showModal();
       location.hash = '';
     }
   },
@@ -399,9 +390,8 @@ var NewTemplateModule = elementorModules.ViewModule.extend({
     this.showModalByHash();
   },
   onAddButtonClick: function onAddButtonClick(event) {
-    var _this$layout2;
     event.preventDefault();
-    (_this$layout2 = this.layout) === null || _this$layout2 === void 0 || _this$layout2.showModal();
+    this.layout.showModal();
   }
 });
 jQuery(function () {

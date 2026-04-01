@@ -1,3 +1,4 @@
+/*! elementor - v3.32.0 - 16-09-2025 */
 "use strict";
 (self["webpackChunkelementorFrontend"] = self["webpackChunkelementorFrontend"] || []).push([["youtube-handler"],{
 
@@ -40,10 +41,11 @@ const loadYouTubeAPI = () => {
 };
 (0, _frontendHandlers.register)({
   elementType: 'e-youtube',
-  id: 'e-youtube-handler',
-  callback: ({
-    element
-  }) => {
+  uniqueId: 'e-youtube-handler',
+  callback: _ref => {
+    let {
+      element
+    } = _ref;
     const youtubeElement = document.createElement('div');
     youtubeElement.style.height = '100%';
     element.appendChild(youtubeElement);

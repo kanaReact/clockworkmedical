@@ -21,15 +21,15 @@ abstract class Base_Promotion_Template implements Admin_Menu_Item_With_Page {
 
 	abstract protected function get_video_url(): string;
 
-	public function is_visible(): bool {
+	public function is_visible() {
 		return true;
 	}
 
-	public function get_parent_slug(): string {
+	public function get_parent_slug() {
 		return Settings::PAGE_ID;
 	}
 
-	public function get_capability(): string {
+	public function get_capability() {
 		return 'manage_options';
 	}
 

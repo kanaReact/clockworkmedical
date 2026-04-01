@@ -758,19 +758,19 @@ class Svg_Sanitizer {
 	 * @since 3.16.0
 	 * @access private
 	 *
-	 * @param string $content
+	 * @param $string
 	 * @return string
 	 */
-	private function strip_php_tags( $content ) {
-		$content = preg_replace( '/<\?(=|php)(.+?)\?>/i', '', $content );
+	private function strip_php_tags( $string ) {
+		$string = preg_replace( '/<\?(=|php)(.+?)\?>/i', '', $string );
 		// Remove XML, ASP, etc.
-		$content = preg_replace( '/<\?(.*)\?>/Us', '', $content );
-		$content = preg_replace( '/<\%(.*)\%>/Us', '', $content );
+		$string = preg_replace( '/<\?(.*)\?>/Us', '', $string );
+		$string = preg_replace( '/<\%(.*)\%>/Us', '', $string );
 
-		if ( ( false !== strpos( $content, '<?' ) ) || ( false !== strpos( $content, '<%' ) ) ) {
+		if ( ( false !== strpos( $string, '<?' ) ) || ( false !== strpos( $string, '<%' ) ) ) {
 			return '';
 		}
-		return $content;
+		return $string;
 	}
 
 	/**
@@ -779,17 +779,17 @@ class Svg_Sanitizer {
 	 * @since 3.16.0
 	 * @access private
 	 *
-	 * @param string $content
+	 * @param $string
 	 * @return string
 	 */
-	private function strip_comments( $content ) {
+	private function strip_comments( $string ) {
 		// Remove comments.
-		$content = preg_replace( '/<!--(.*)-->/Us', '', $content );
-		$content = preg_replace( '/\/\*(.*)\*\//Us', '', $content );
-		if ( ( false !== strpos( $content, '<!--' ) ) || ( false !== strpos( $content, '/*' ) ) ) {
+		$string = preg_replace( '/<!--(.*)-->/Us', '', $string );
+		$string = preg_replace( '/\/\*(.*)\*\//Us', '', $string );
+		if ( ( false !== strpos( $string, '<!--' ) ) || ( false !== strpos( $string, '/*' ) ) ) {
 			return '';
 		}
-		return $content;
+		return $string;
 	}
 
 	/**
@@ -798,11 +798,11 @@ class Svg_Sanitizer {
 	 * @since 3.16.0
 	 * @access private
 	 *
-	 * @param string $content
+	 * @param $string
 	 * @return string
 	 */
-	private function strip_line_breaks( $content ) {
+	private function strip_line_breaks( $string ) {
 		// Remove line breaks.
-		return preg_replace( '/\r|\n/', '', $content );
+		return preg_replace( '/\r|\n/', '', $string );
 	}
 }

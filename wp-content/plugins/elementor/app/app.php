@@ -14,9 +14,6 @@ use Elementor\Utils;
 use Elementor\Core\Utils\Promotions\Filtered_Promotions_Manager;
 use Elementor\Core\Utils\Assets_Config_Provider;
 use Elementor\Core\Utils\Collection;
-use Elementor\Core\Utils\Assets_Translation_Loader;
-use Elementor\Modules\EditorOne\Classes\Menu_Data_Provider;
-use Elementor\App\AdminMenuItems\Editor_One_Theme_Builder_Menu;
 
 use Elementor\App\Modules\ImportExport\Module as ImportExportModule;
 use Elementor\App\Modules\KitLibrary\Module as KitLibraryModule;
@@ -51,17 +48,7 @@ class App extends BaseApp {
 	}
 
 	private function register_admin_menu( Admin_Menu_Manager $admin_menu ) {
-		if ( ! $this->is_editor_one_active() ) {
-			$admin_menu->register( static::PAGE_ID, new Theme_Builder_Menu_Item() );
-		}
-	}
-
-	private function register_editor_one_menu( Menu_Data_Provider $menu_data_provider ) {
-		$menu_data_provider->register_menu( new Editor_One_Theme_Builder_Menu() );
-	}
-
-	private function is_editor_one_active(): bool {
-		return (bool) Plugin::instance()->modules_manager->get_modules( 'editor-one' );
+		$admin_menu->register( static::PAGE_ID, new Theme_Builder_Menu_Item() );
 	}
 
 	public function fix_submenu( $menu ) {
@@ -276,7 +263,8 @@ class App extends BaseApp {
 
 		$this->enqueue_dark_theme_detection_script();
 
-		Assets_Translation_Loader::for_handles( [ 'elementor-app-packages', 'elementor-app' ], 'elementor' );
+		wp_set_script_translations( 'elementor-app-packages', 'elementor' );
+		wp_set_script_translations( 'elementor-app', 'elementor' );
 
 		$this->print_config();
 	}
@@ -302,8 +290,6 @@ class App extends BaseApp {
 			'description' => esc_html__( 'Enhanced import/export for website templates. Selectively include site content, templates, and settings with advanced granular control.', 'elementor' ),
 			'release_status' => ExperimentsManager::RELEASE_STATUS_BETA,
 			'default' => ExperimentsManager::STATE_ACTIVE,
-			'hidden' => true,
-			'mutable' => false,
 		] );
 	}
 
@@ -328,10 +314,6 @@ class App extends BaseApp {
 		add_action( 'elementor/admin/menu/register', function ( Admin_Menu_Manager $admin_menu ) {
 			$this->register_admin_menu( $admin_menu );
 		}, Source_Local::ADMIN_MENU_PRIORITY + 10 );
-
-		add_action( 'elementor/editor-one/menu/register', function ( Menu_Data_Provider $menu_data_provider ) {
-			$this->register_editor_one_menu( $menu_data_provider );
-		} );
 
 		// Happens after WP plugin page validation.
 		add_filter( 'add_menu_classes', [ $this, 'fix_submenu' ] );

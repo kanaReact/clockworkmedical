@@ -582,7 +582,8 @@ class Upgrades {
 	 *  Update database to separate page from post.
 	 *
 	 * @param Updater $updater
-	 * @param string  $type
+	 *
+	 * @param string $type
 	 *
 	 * @return bool
 	 */

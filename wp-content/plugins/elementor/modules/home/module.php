@@ -63,17 +63,6 @@ class Module extends BaseApp {
 			'elementorHomeScreenData',
 			$this->get_app_js_config()
 		);
-
-		if ( ! Plugin::$instance->experiments->is_feature_active( 'e_editor_one' ) ) {
-			return;
-		}
-
-		wp_enqueue_style(
-			'e-home-screen',
-			$this->get_css_assets_url( 'modules/home/e-home-screen' ),
-			[],
-			ELEMENTOR_VERSION
-		);
 	}
 
 	public function is_experiment_active(): bool {
@@ -110,10 +99,7 @@ class Module extends BaseApp {
 		$editor_assets_api = new EditorAssetsAPI( $this->get_api_config() );
 		$api = new API( $editor_assets_api );
 
-		$config = $api->get_home_screen_items();
-		$config['isEditorOneActive'] = Plugin::$instance->experiments->is_feature_active( 'e_editor_one' );
-
-		return $config;
+		return $api->get_home_screen_items();
 	}
 
 	private function get_api_config(): array {

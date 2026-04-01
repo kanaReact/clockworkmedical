@@ -5,20 +5,16 @@ use Elementor\Modules\AtomicWidgets\Controls\Section;
 use Elementor\Modules\AtomicWidgets\Controls\Types\Link_Control;
 use Elementor\Modules\AtomicWidgets\Controls\Types\Select_Control;
 use Elementor\Modules\AtomicWidgets\Controls\Types\Textarea_Control;
-use Elementor\Modules\AtomicWidgets\Controls\Types\Inline_Editing_Control;
 use Elementor\Modules\AtomicWidgets\Elements\Atomic_Widget_Base;
 use Elementor\Modules\AtomicWidgets\Elements\Has_Template;
-use Elementor\Modules\AtomicWidgets\Module as Atomic_Widgets_Module;
 use Elementor\Modules\AtomicWidgets\PropTypes\Classes_Prop_Type;
 use Elementor\Modules\AtomicWidgets\PropTypes\Attributes_Prop_Type;
-use Elementor\Modules\AtomicWidgets\PropTypes\Html_Prop_Type;
 use Elementor\Modules\AtomicWidgets\PropTypes\Link_Prop_Type;
 use Elementor\Modules\AtomicWidgets\PropTypes\Primitives\String_Prop_Type;
 use Elementor\Modules\AtomicWidgets\PropTypes\Size_Prop_Type;
 use Elementor\Modules\AtomicWidgets\Styles\Style_Definition;
 use Elementor\Modules\AtomicWidgets\Styles\Style_Variant;
 use Elementor\Modules\AtomicWidgets\Controls\Types\Text_Control;
-use Elementor\Plugin;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
@@ -46,23 +42,16 @@ class Atomic_Heading extends Atomic_Widget_Base {
 	}
 
 	protected static function define_props_schema(): array {
-		$is_feature_active = Plugin::$instance->experiments->is_feature_active( Atomic_Widgets_Module::EXPERIMENT_INLINE_EDITING );
-
-		$title_prop = $is_feature_active
-			? Html_Prop_Type::make()->default( __( 'This is a title', 'elementor' ) )
-			: String_Prop_Type::make()->default( __( 'This is a title', 'elementor' ) );
-
 		$props = [
 			'classes' => Classes_Prop_Type::make()
 				->default( [] ),
 
 			'tag' => String_Prop_Type::make()
 				->enum( [ 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ] )
-				->default( 'h2' )
-				->description( 'The HTML tag for the heading element. Could be h1, h2, up to h6' ),
+				->default( 'h2' ),
 
-			'title' => $title_prop
-				->description( 'The text content of the heading.' ),
+			'title' => String_Prop_Type::make()
+				->default( __( 'This is a title', 'elementor' ) ),
 
 			'link' => Link_Prop_Type::make(),
 
@@ -73,19 +62,14 @@ class Atomic_Heading extends Atomic_Widget_Base {
 	}
 
 	protected function define_atomic_controls(): array {
-		$is_feature_active = Plugin::$instance->experiments->is_feature_active( Atomic_Widgets_Module::EXPERIMENT_INLINE_EDITING );
-
-		$control = $is_feature_active
-			? Inline_Editing_Control::bind_to( 'title' )
-				->set_placeholder( __( 'Type your title here', 'elementor' ) )
-				->set_label( __( 'Title', 'elementor' ) )
-			: Textarea_Control::bind_to( 'title' )
-				->set_placeholder( __( 'Type your title here', 'elementor' ) )
-				->set_label( __( 'Title', 'elementor' ) );
-
 		$content_section = Section::make()
 			->set_label( __( 'Content', 'elementor' ) )
-			->set_items( [ $control ] );
+			->set_items( [
+				Textarea_Control::bind_to( 'title' )
+				->set_placeholder( __( 'Type your title here', 'elementor' ) )
+					->set_label( __( 'Title', 'elementor' ) ),
+			] );
+
 		return [
 			$content_section,
 			Section::make()
@@ -126,7 +110,6 @@ class Atomic_Heading extends Atomic_Widget_Base {
 				])
 				->set_label( __( 'Tag', 'elementor' ) ),
 			Link_Control::bind_to( 'link' )
-				->set_placeholder( __( 'Type or paste your URL', 'elementor' ) )
 				->set_label( __( 'Link', 'elementor' ) )
 				->set_meta( [
 					'topDivider' => true,

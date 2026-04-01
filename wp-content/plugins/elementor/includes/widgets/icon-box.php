@@ -236,32 +236,25 @@ class Widget_Icon_Box extends Widget_Base {
 			[
 				'label' => esc_html__( 'Icon Position', 'elementor' ),
 				'type' => Controls_Manager::CHOOSE,
-				'default' => 'block-start',
-				'mobile_default' => 'block-start',
+				'default' => 'top',
+				'mobile_default' => 'top',
 				'options' => [
-					'inline-start' => [
-						'title' => esc_html__( 'Start', 'elementor' ),
+					'left' => [
+						'title' => esc_html__( 'Left', 'elementor' ),
 						'icon' => 'eicon-h-align-left',
 					],
-					'inline-end' => [
-						'title' => esc_html__( 'End', 'elementor' ),
-						'icon' => 'eicon-h-align-right',
-					],
-					'block-start' => [
+					'top' => [
 						'title' => esc_html__( 'Top', 'elementor' ),
 						'icon' => 'eicon-v-align-top',
 					],
-					'block-end' => [
+					'right' => [
+						'title' => esc_html__( 'Right', 'elementor' ),
+						'icon' => 'eicon-h-align-right',
+					],
+					'bottom' => [
 						'title' => esc_html__( 'Bottom', 'elementor' ),
 						'icon' => 'eicon-v-align-bottom',
 					],
-				],
-				'classes' => 'elementor-control-start-end',
-				'classes_dictionary' => [
-					'left' => is_rtl() ? 'inline-end' : 'inline-start',
-					'right' => is_rtl() ? 'inline-start' : 'inline-end',
-					'top' => 'block-start',
-					'bottom' => 'block-end',
 				],
 				'prefix_class' => 'elementor%s-position-',
 				'condition' => [
@@ -300,7 +293,7 @@ class Widget_Icon_Box extends Widget_Base {
 				],
 				'condition' => [
 					'selected_icon[value]!' => '',
-					'position' => [ 'left', 'right', 'inline-start', 'inline-end' ],
+					'position' => [ 'left', 'right' ],
 				],
 			]
 		);
@@ -311,27 +304,22 @@ class Widget_Icon_Box extends Widget_Base {
 				'label' => esc_html__( 'Alignment', 'elementor' ),
 				'type' => Controls_Manager::CHOOSE,
 				'options' => [
-					'start' => [
-						'title' => esc_html__( 'Start', 'elementor' ),
+					'left' => [
+						'title' => esc_html__( 'Left', 'elementor' ),
 						'icon' => 'eicon-text-align-left',
 					],
 					'center' => [
 						'title' => esc_html__( 'Center', 'elementor' ),
 						'icon' => 'eicon-text-align-center',
 					],
-					'end' => [
-						'title' => esc_html__( 'End', 'elementor' ),
+					'right' => [
+						'title' => esc_html__( 'Right', 'elementor' ),
 						'icon' => 'eicon-text-align-right',
 					],
 					'justify' => [
 						'title' => esc_html__( 'Justified', 'elementor' ),
 						'icon' => 'eicon-text-align-justify',
 					],
-				],
-				'classes' => 'elementor-control-start-end',
-				'selectors_dictionary' => [
-					'left' => is_rtl() ? 'end' : 'start',
-					'right' => is_rtl() ? 'start' : 'end',
 				],
 				'selectors' => [
 					'{{WRAPPER}} .elementor-icon-box-wrapper' => 'text-align: {{VALUE}};',
@@ -361,7 +349,7 @@ class Widget_Icon_Box extends Widget_Base {
 					],
 				],
 				'selectors' => [
-					'{{WRAPPER}} .elementor-icon-box-wrapper' => 'gap: {{SIZE}}{{UNIT}};',
+					'{{WRAPPER}}' => '--icon-box-icon-margin: {{SIZE}}{{UNIT}}',
 				],
 				'condition' => [
 					'selected_icon[value]!' => '',

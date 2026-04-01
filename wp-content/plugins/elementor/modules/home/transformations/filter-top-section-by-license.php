@@ -11,7 +11,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class Filter_Top_Section_By_License extends Transformations_Abstract {
-
 	public bool $has_pro;
 	private array $supported_tiers;
 
@@ -22,7 +21,6 @@ class Filter_Top_Section_By_License extends Transformations_Abstract {
 		$this->supported_tiers = [
 			ConnectModule::ACCESS_TIER_FREE,
 			ConnectModule::ACCESS_TIER_PRO_LEGACY,
-			self::USER_TIER_ONE,
 		];
 	}
 
@@ -42,18 +40,10 @@ class Filter_Top_Section_By_License extends Transformations_Abstract {
 			return true;
 		}
 
-		$is_user_tier_supported = in_array( $user_tier, $this->supported_tiers, true );
-
-		if ( $is_user_tier_supported ) {
-			return false;
-		}
-
 		$is_item_tier_free = ConnectModule::ACCESS_TIER_FREE === $item_tier;
 		$is_valid = $this->has_pro !== $is_item_tier_free;
 
-		$is_supported_item_tier = in_array( $item_tier, $this->supported_tiers, true );
-
-		return $is_valid && $is_supported_item_tier;
+		return $is_valid && in_array( $item_tier, $this->supported_tiers, true );
 	}
 
 	public function transform( array $home_screen_data ): array {

@@ -16,9 +16,9 @@ trait Shared_Widget_Controls_Trait {
 		'step' => 1,
 	];
 
-	protected function add_html_tag_control( string $control_name, string $default_tag = 'h2' ): void {
+	protected function add_html_tag_control( string $name, string $default = 'h2' ): void {
 		$this->add_control(
-			$control_name,
+			$name,
 			[
 				'label' => esc_html__( 'HTML Tag', 'elementor' ),
 				'type' => Controls_Manager::SELECT,
@@ -33,7 +33,7 @@ trait Shared_Widget_Controls_Trait {
 					'span' => 'span',
 					'p' => 'p',
 				],
-				'default' => $default_tag,
+				'default' => $default,
 			]
 		);
 	}
@@ -99,7 +99,7 @@ trait Shared_Widget_Controls_Trait {
 			'2' => '2',
 			'3' => '3',
 		],
-		string $default_value = '3',
+		string $default = '3',
 		$label = '',
 		$selector_custom_property = '--e-link-in-bio-icon-columns'
 	): void {
@@ -112,7 +112,7 @@ trait Shared_Widget_Controls_Trait {
 				'label' => $label,
 				'type' => Controls_Manager::SELECT,
 				'options' => $options,
-				'default' => $default_value,
+				'default' => $default,
 				'render_type' => 'template',
 				'selectors' => [
 					'{{WRAPPER}} .e-link-in-bio' => $selector_custom_property . ': {{VALUE}};',

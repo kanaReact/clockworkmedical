@@ -133,8 +133,6 @@ class Modules_Manager {
 			'cloud-kit-library',
 			'atomic-opt-in',
 			'components',
-			'interactions',
-			'editor-one',
 		];
 	}
 

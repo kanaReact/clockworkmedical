@@ -28,13 +28,13 @@ class Section implements JsonSerializable {
 	}
 
 	public function set_label( string $label ): self {
-		$this->label = html_entity_decode( $label );
+		$this->label = $label;
 
 		return $this;
 	}
 
 	public function set_description( string $description ): self {
-		$this->description = html_entity_decode( $description );
+		$this->description = $description;
 
 		return $this;
 	}

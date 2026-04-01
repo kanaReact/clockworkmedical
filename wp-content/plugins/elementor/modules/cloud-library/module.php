@@ -43,12 +43,8 @@ class Module extends BaseModule {
 		add_filter( 'elementor/render_mode/module', function( $module_name ) {
 			$render_mode_manager = \Elementor\Plugin::$instance->frontend->render_mode_manager;
 
-			if ( $render_mode_manager ) {
-				$current_render_mode = $render_mode_manager->get_current();
-
-				if ( $current_render_mode instanceof \Elementor\Modules\CloudLibrary\Render_Mode_Preview ) {
-					return 'cloud-library';
-				}
+			if ( $render_mode_manager && $render_mode_manager->get_current() instanceof \Elementor\Modules\CloudLibrary\Render_Mode_Preview ) {
+				return 'cloud-library';
 			}
 
 			return $module_name;
@@ -61,7 +57,7 @@ class Module extends BaseModule {
 	}
 
 	public function get_proxy_data( $url ) {
-		$response = wp_safe_remote_get( $url );
+		$response = wp_safe_remote_get( utf8_decode( $url ) );
 
 		if ( is_wp_error( $response ) ) {
 			return '';
@@ -117,7 +113,7 @@ class Module extends BaseModule {
 	/**
 	 * @param Render_Mode_Manager $manager
 	 *
-	 * @throws \Exception If render mode registration fails.
+	 * @throws \Exception
 	 */
 	public function register_render_mode( Render_Mode_Manager $manager ) {
 		$manager->register_render_mode( Render_Mode_Preview::class );
@@ -177,23 +173,10 @@ class Module extends BaseModule {
 	private function print_thumbnail_preview_callback() {
 		$doc = Plugin::$instance->documents->get_current();
 
-		if ( ! $doc ) {
-			$render_mode = Plugin::$instance->frontend->render_mode_manager->get_current();
-			if ( $render_mode instanceof Render_Mode_Preview ) {
-				$doc = $render_mode->get_document();
-			}
-		}
+		// PHPCS - should not be escaped.
+		echo Plugin::$instance->frontend->get_builder_content_for_display( $doc->get_main_id(), true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 
-		if ( ! $doc ) {
-			echo '<div class="elementor-alert elementor-alert-danger">' . esc_html__( 'Document not found for preview.', 'elementor' ) . '</div>';
-			return;
-		}
-
-		Plugin::$instance->documents->switch_to_document( $doc );
-
-		$content = $doc->get_content( true );
-
-		echo $content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		wp_delete_post( $doc->get_main_id(), true );
 	}
 
 

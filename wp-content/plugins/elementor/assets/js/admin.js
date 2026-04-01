@@ -1,3 +1,4 @@
+/*! elementor - v3.32.0 - 16-09-2025 */
 /******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
@@ -1694,17 +1695,19 @@ function _regeneratorDefine(e, r, n, t) {
     i = 0;
   }
   module.exports = _regeneratorDefine = function regeneratorDefine(e, r, n, t) {
-    function o(r, n) {
-      _regeneratorDefine(e, r, function (e) {
-        return this._invoke(r, n, e);
-      });
-    }
-    r ? i ? i(e, r, {
+    if (r) i ? i(e, r, {
       value: n,
       enumerable: !t,
       configurable: !t,
       writable: !t
-    }) : e[r] = n : (o("next", 0), o("throw", 1), o("return", 2));
+    }) : e[r] = n;else {
+      var o = function o(r, n) {
+        _regeneratorDefine(e, r, function (e) {
+          return this._invoke(r, n, e);
+        });
+      };
+      o("next", 0), o("throw", 1), o("return", 2);
+    }
   }, module.exports.__esModule = true, module.exports["default"] = module.exports, _regeneratorDefine(e, r, n, t);
 }
 module.exports = _regeneratorDefine, module.exports.__esModule = true, module.exports["default"] = module.exports;
@@ -2071,7 +2074,8 @@ var _module3 = _interopRequireDefault(__webpack_require__(/*! elementor/modules/
         $settingsTabsWrapper: $('#elementor-settings-tabs-wrapper'),
         $menuGetHelpLink: $('a[href="admin.php?page=go_knowledge_base_site"]'),
         $menuGoProLink: $('a[href="admin.php?page=go_elementor_pro"]'),
-        $reMigrateGlobalsButton: $('.elementor-re-migrate-globals-button')
+        $reMigrateGlobalsButton: $('.elementor-re-migrate-globals-button'),
+        $menuCloudHostingPlansLink: $('a[href="edit.php?post_type=elementor_library&page=go_cloud_hosting_plans"]')
       };
       elements.$settingsFormPages = elements.$settingsForm.find('.elementor-settings-form-page');
       elements.$activeSettingsPage = elements.$settingsFormPages.filter('.elementor-active');
@@ -2136,30 +2140,24 @@ var _module3 = _interopRequireDefault(__webpack_require__(/*! elementor/modules/
         });
       });
       $('.e-notice--cta.e-notice--dismissible[data-notice_id="plugin_image_optimization"] a.e-button--cta').on('click', function () {
-        var $notice = $(this).closest('.e-notice');
-        var source = $notice.data('source') || 'io-wp-media-library-install';
         elementorCommon.ajax.addRequest('elementor_image_optimization_campaign', {
           data: {
-            source: source
+            source: 'io-wp-media-library-install'
           }
         });
       });
       $('.e-a-apps .e-a-item[data-plugin="image-optimization/image-optimization.php"] a.e-btn').on('click', function () {
-        var $item = $(this).closest('.e-a-item');
-        var source = $item.data('source') || 'io-esetting-addons-install';
         elementorCommon.ajax.addRequest('elementor_image_optimization_campaign', {
           data: {
-            source: source
+            source: 'io-esetting-addons-install'
           }
         });
       });
       $('.e-notice--cta.e-notice--dismissible[data-notice_id="site_mailer_promotion"] a.e-button--cta').on('click', function () {
-        var $button = $(this);
-        var $notice = $button.closest('.e-notice');
-        var source = $button.data('source') || $notice.data('source') || ($notice.hasClass('sm-notice-wc') ? 'sm-core-woo-install' : 'sm-core-form-install');
+        var isWcNotice = $(this).closest('.e-notice').hasClass('sm-notice-wc');
         elementorCommon.ajax.addRequest('elementor_core_site_mailer_campaign', {
           data: {
-            source: source
+            source: isWcNotice ? 'sm-core-woo-install' : 'sm-core-form-install'
           }
         });
       });
@@ -2364,7 +2362,7 @@ var _module3 = _interopRequireDefault(__webpack_require__(/*! elementor/modules/
      * @since 3.6.0
      */
     openLinksInNewTab: function openLinksInNewTab() {
-      var elements = [this.elements.$menuGetHelpLink, this.elements.$menuGoProLink];
+      var elements = [this.elements.$menuGetHelpLink, this.elements.$menuGoProLink, this.elements.$menuCloudHostingPlansLink];
       elements.forEach(function ($element) {
         // Only add the attribute if the element is found.
         if ($element.length) {
@@ -2388,7 +2386,7 @@ var _module3 = _interopRequireDefault(__webpack_require__(/*! elementor/modules/
         $importNowButton = self.elements.$importNowButton,
         $importFormFileInput = self.elements.$importFormFileInput;
       self.elements.$formAnchor = $('.wp-header-end');
-      $('#wpbody-content').find('.page-title-action').first().before($importButton);
+      $('#wpbody-content').find('.page-title-action').last().after($importButton);
       self.elements.$formAnchor.after($importArea);
       $importButton.on('click', function () {
         $('#elementor-import-template-area').toggle();

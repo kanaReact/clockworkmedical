@@ -154,8 +154,8 @@ class Manager extends BaseModule {
 		wp_send_json_success();
 	}
 
-	public function register_logger( $name, $class_name ) {
-		$this->loggers[ $name ] = $class_name;
+	public function register_logger( $name, $class ) {
+		$this->loggers[ $name ] = $class;
 	}
 
 	public function set_default_logger( $name ) {
@@ -246,6 +246,7 @@ class Manager extends BaseModule {
 			E_COMPILE_ERROR => Logger_Interface::LEVEL_ERROR,
 			E_RECOVERABLE_ERROR => Logger_Interface::LEVEL_ERROR,
 			E_PARSE => Logger_Interface::LEVEL_ERROR,
+			E_STRICT => Logger_Interface::LEVEL_ERROR,
 
 			E_WARNING => Logger_Interface::LEVEL_WARNING,
 			E_USER_WARNING => Logger_Interface::LEVEL_WARNING,

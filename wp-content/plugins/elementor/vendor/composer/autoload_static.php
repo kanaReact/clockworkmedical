@@ -4,26 +4,8 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInit50e22c48ebc837c751a18b0f716e41ba
+class ComposerStaticInit436bafdc6f8e14a5746e69a01025f6d9
 {
-    public static $files = array (
-        '9db71c6726821ac61284818089584d23' => __DIR__ . '/..' . '/elementor/wp-one-package/runner.php',
-    );
-
-    public static $prefixLengthsPsr4 = array (
-        'E' =>
-        array (
-            'Elementor\\WPNotificationsPackage\\' => 33,
-        ),
-    );
-
-    public static $prefixDirsPsr4 = array (
-        'Elementor\\WPNotificationsPackage\\' =>
-        array (
-            0 => __DIR__ . '/..' . '/elementor/wp-notifications-package/src',
-        ),
-    );
-
     public static $classMap = array (
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
         'ElementorDeps\\Attribute' => __DIR__ . '/../..' . '/vendor_prefixed/twig/symfony/polyfill-php80/Resources/stubs/Attribute.php',
@@ -230,9 +212,7 @@ class ComposerStaticInit50e22c48ebc837c751a18b0f716e41ba
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInit50e22c48ebc837c751a18b0f716e41ba::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInit50e22c48ebc837c751a18b0f716e41ba::$prefixDirsPsr4;
-            $loader->classMap = ComposerStaticInit50e22c48ebc837c751a18b0f716e41ba::$classMap;
+            $loader->classMap = ComposerStaticInit436bafdc6f8e14a5746e69a01025f6d9::$classMap;
 
         }, null, ClassLoader::class);
     }

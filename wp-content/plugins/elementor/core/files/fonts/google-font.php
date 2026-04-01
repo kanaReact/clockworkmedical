@@ -33,7 +33,7 @@ class Google_Font {
 			return true;
 		}
 
-		$is_local_gf_enabled = (bool) get_option( 'elementor_local_google_fonts', '0' );
+		$is_local_gf_enabled = (bool) get_option( 'elementor_lazy_load_background_images', '0' );
 		if ( ! $is_local_gf_enabled ) {
 			$force_enqueue_from_cdn = true;
 		}
@@ -258,6 +258,7 @@ class Google_Font {
 
 		$sanitize_font_name = static::sanitize_font_name( $font_name );
 
+		// phpcs:ignore WordPress.WP.EnqueuedResourceParameters.MissingVersion
 		wp_enqueue_style(
 			'elementor-gf-' . $sanitize_font_name,
 			$font_url,

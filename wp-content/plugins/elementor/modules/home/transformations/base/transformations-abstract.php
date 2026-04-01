@@ -14,11 +14,6 @@ use Elementor\Core\Isolation\Wordpress_Adapter_Interface;
 
 abstract class Transformations_Abstract {
 
-	protected const USER_TIER_FREE = 'free';
-	protected const USER_TIER_PRO = 'pro';
-	protected const USER_TIER_AGENCY = 'agency';
-	protected const USER_TIER_ONE = 'one';
-
 	protected Wordpress_Adapter_Interface $wordpress_adapter;
 	protected Plugin_Status_Adapter_Interface $plugin_status_adapter;
 	protected Elementor_Adapter_Interface $elementor_adapter;
@@ -39,13 +34,7 @@ abstract class Transformations_Abstract {
 	protected function get_tier() {
 		$tier = $this->elementor_adapter->get_tier();
 
-		$filtered_tier = apply_filters( 'elementor/admin/homescreen_promotion_tier', $tier ) ?? $tier;
-
-		return $this->normalize_tier( $filtered_tier );
-	}
-
-	private function normalize_tier( string $tier ): string {
-		return self::USER_TIER_AGENCY === $tier ? self::USER_TIER_ONE : $tier;
+		return apply_filters( 'elementor/admin/homescreen_promotion_tier', $tier ) ?? $tier;
 	}
 
 	abstract public function transform( array $home_screen_data ): array;

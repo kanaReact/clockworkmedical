@@ -5,8 +5,8 @@ use Elementor\Core\Admin\Menu\Admin_Menu_Manager;
 use Elementor\Core\Common\Modules\Connect\Module as ConnectModule;
 use Elementor\Core\Base\Module as BaseModule;
 use Elementor\Plugin;
+use Elementor\Settings;
 use Elementor\Utils;
-use Elementor\Modules\EditorOne\Classes\Menu_Data_Provider;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
@@ -32,34 +32,11 @@ class Module extends BaseModule {
 		} );
 
 		add_action( 'elementor/admin/menu/register', function( Admin_Menu_Manager $admin_menu ) {
-			if ( ! $this->is_editor_one_active() ) {
-				$admin_menu->register(
-					'elementor-connect-account',
-					new Pro_Install_Menu_Item(
-						$this->get_connect_app(),
-						$this->get_pro_install_page_assets(),
-					)
-				);
-			}
-		}, 116 );
-
-		add_action( 'elementor/editor-one/menu/excluded_level3_slugs', function ( array $excluded_slugs ): array {
-			$excluded_slugs[] = 'elementor-connect';
-			return $excluded_slugs;
-		} );
-
-		add_action( 'elementor/editor-one/menu/register', function( Menu_Data_Provider $menu_data_provider ) {
-			$menu_data_provider->register_menu(
-				new Editor_One_Connect_Account_Menu_Item(
-					$this->get_connect_app(),
-					$this->get_pro_install_page_assets()
-				)
+			$admin_menu->register(
+				'elementor-connect-account',
+				new Pro_Install_Menu_Item( $this->get_connect_app() )
 			);
-		} );
-	}
-
-	private function is_editor_one_active(): bool {
-		return (bool) Plugin::instance()->modules_manager->get_modules( 'editor-one' );
+		}, 116 );
 	}
 
 	private function get_connect_app(): Connect {
@@ -88,15 +65,5 @@ class Module extends BaseModule {
 		}
 
 		wp_safe_redirect( admin_url( 'admin.php?page=elementor-license' ) );
-	}
-
-	private function get_pro_install_page_assets(): array {
-		return [
-			'elementor-pro-install-events',
-			$this->get_js_assets_url( 'pro-install-events' ),
-			[ 'elementor-common' ],
-			ELEMENTOR_VERSION,
-			true,
-		];
 	}
 }

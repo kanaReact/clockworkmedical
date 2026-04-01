@@ -4,16 +4,14 @@ namespace Elementor\Modules\AtomicWidgets\Elements;
 
 class Element_Builder {
 	protected $element_type;
-	protected $settings = [];
-	protected $is_locked = false;
-	protected $children = [];
-	protected $editor_settings = [];
+	protected $settings;
+	protected $is_locked;
 
-	public static function make( string $element_type ) {
+	public static function make( $element_type ) {
 		return new self( $element_type );
 	}
 
-	private function __construct( string $element_type ) {
+	private function __construct( $element_type ) {
 		$this->element_type = $element_type;
 	}
 
@@ -27,25 +25,11 @@ class Element_Builder {
 		return $this;
 	}
 
-	public function editor_settings( array $editor_settings ) {
-		$this->editor_settings = $editor_settings;
-		return $this;
-	}
-
-	public function children( array $children ) {
-		$this->children = $children;
-		return $this;
-	}
-
 	public function build() {
-		$element_data = [
+		return [
 			'elType' => $this->element_type,
 			'settings' => $this->settings,
 			'isLocked' => $this->is_locked,
-			'editor_settings' => $this->editor_settings,
-			'elements' => $this->children,
 		];
-
-		return $element_data;
 	}
 }

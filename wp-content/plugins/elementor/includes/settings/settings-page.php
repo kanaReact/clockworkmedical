@@ -383,7 +383,7 @@ abstract class Settings_Page {
 					echo '</div>';
 				}
 
-				submit_button( __( 'Save Changes', 'elementor' ), 'primary', 'submit', true, [ 'data-id' => 'elementor-settings-button-save-changes' ] );
+				submit_button();
 				?>
 			</form>
 		</div><!-- /.wrap -->

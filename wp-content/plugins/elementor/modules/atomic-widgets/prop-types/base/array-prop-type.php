@@ -2,6 +2,7 @@
 
 namespace Elementor\Modules\AtomicWidgets\PropTypes\Base;
 
+use Elementor\Modules\AtomicWidgets\PropDependencies\Manager as Dependency_Manager;
 use Elementor\Modules\AtomicWidgets\PropTypes\Concerns;
 use Elementor\Modules\AtomicWidgets\PropTypes\Contracts\Transformable_Prop_Type;
 use Elementor\Modules\AtomicWidgets\PropTypes\Contracts\Prop_Type;
@@ -11,9 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 abstract class Array_Prop_Type implements Transformable_Prop_Type {
-	// Backward compatibility, do not change to "const". Keep name in uppercase.
-	// phpcs:ignore
-	static $KIND = 'array';
+	const KIND = 'array';
 
 	use Concerns\Has_Default;
 	use Concerns\Has_Generate;
@@ -21,7 +20,6 @@ abstract class Array_Prop_Type implements Transformable_Prop_Type {
 	use Concerns\Has_Required_Setting;
 	use Concerns\Has_Settings;
 	use Concerns\Has_Transformable_Validation;
-	use Concerns\Has_Initial_Value;
 
 	protected Prop_Type $item_type;
 
@@ -100,15 +98,13 @@ abstract class Array_Prop_Type implements Transformable_Prop_Type {
 
 	public function jsonSerialize(): array {
 		return [
-			// phpcs:ignore
-			'kind' => static::$KIND,
+			'kind' => static::KIND,
 			'key' => static::get_key(),
 			'default' => $this->get_default(),
 			'meta' => (object) $this->get_meta(),
 			'settings' => (object) $this->get_settings(),
 			'item_prop_type' => $this->get_item_type(),
 			'dependencies' => $this->get_dependencies(),
-			'initial_value' => $this->get_initial_value(),
 		];
 	}
 

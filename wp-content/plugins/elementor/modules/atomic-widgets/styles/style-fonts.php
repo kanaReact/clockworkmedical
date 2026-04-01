@@ -2,6 +2,13 @@
 
 namespace Elementor\Modules\AtomicWidgets\Styles;
 
+use Elementor\Core\Base\Document;
+use Elementor\Core\Breakpoints\Breakpoint;
+use Elementor\Core\Utils\Collection;
+use Elementor\Modules\AtomicWidgets\Memo;
+use Elementor\Modules\AtomicWidgets\Cache_Validity;
+use Elementor\Plugin;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
 }
@@ -44,14 +51,7 @@ class Style_Fonts {
 
 	private function update_fonts( array $fonts ) {
 		$style_fonts_key = $this->get_key();
-
-		if ( empty( $fonts ) ) {
-			delete_option( $style_fonts_key );
-
-			return;
-		}
-
-		update_option( $style_fonts_key, $fonts, false );
+		update_option( $style_fonts_key, $fonts );
 	}
 
 	private function get_key(): string {
