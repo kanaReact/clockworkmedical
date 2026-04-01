@@ -379,6 +379,19 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Feedback Form Endpoints
+    register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/feedback', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_meeting_feedback',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/feedback', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_submit_meeting_feedback',
+        'permission_callback' => '__return_true',
+    ]);
+
     // Contact Form Endpoint
     register_rest_route( $namespace_v1, '/contact', [
         'methods'             => 'POST',
@@ -861,7 +874,7 @@ function clockwork_find_gravity_form_recursive( $elements, &$form_id, $current_t
  * @param int $form_id Gravity Form ID
  * @return array Form fields
  */
-function clockwork_get_gravity_form_fields( $form_id ) {
+function clockwork_get_gravity_form_fields( $form_id, $skip_internal = false ) {
     $fields = [];
 
     if ( ! class_exists( 'GFAPI' ) ) {
@@ -874,6 +887,11 @@ function clockwork_get_gravity_form_fields( $form_id ) {
     }
 
     foreach ( $form['fields'] as $field ) {
+        // Skip hidden and section fields when requested (e.g., feedback forms)
+        if ( $skip_internal && in_array( $field->type, [ 'hidden', 'section', 'html', 'page' ], true ) ) {
+            continue;
+        }
+
         $field_data = [
             'id'          => (string) $field->id,
             'label'       => $field->label,
@@ -883,6 +901,11 @@ function clockwork_get_gravity_form_fields( $form_id ) {
             'placeholder' => $field->placeholder ?? '',
             'choices'     => [],
         ];
+
+        // Handle survey fields — include inputType so the app knows how to render
+        if ( $field->type === 'survey' && ! empty( $field->inputType ) ) {
+            $field_data['input_type'] = $field->inputType;
+        }
 
         // Handle name field with multiple inputs
         if ( $field->type === 'name' && ! empty( $field->inputs ) ) {
@@ -899,7 +922,7 @@ function clockwork_get_gravity_form_fields( $form_id ) {
             }
         }
 
-        // Handle fields with choices (select, radio, checkbox, multiselect)
+        // Handle fields with choices (select, radio, checkbox, multiselect, survey)
         if ( ! empty( $field->choices ) ) {
             foreach ( $field->choices as $choice ) {
                 $choice_data = [
@@ -960,6 +983,10 @@ function clockwork_map_gravity_field_type( $gf_type ) {
         'html'        => 'html',
         'section'     => 'section',
         'page'        => 'page',
+        'survey'      => 'survey',
+        'likert'      => 'likert',
+        'rating'      => 'rating',
+        'rank'        => 'rank',
     ];
 
     return $type_map[ $gf_type ] ?? $gf_type;
@@ -4061,4 +4088,206 @@ function clockwork_get_users_by_role( $request ) {
         "total_{$type_label}" => count( $users ),
         $type_label           => $data,
     ];
+}
+
+/**
+ * Find the Gravity Forms evaluation form linked to a meeting (product)
+ *
+ * Searches active forms whose title contains "evaluation" for a hidden field
+ * with a defaultValue matching the meeting's product ID.
+ *
+ * @param int $meeting_id WooCommerce product ID
+ * @return int|null Gravity Form ID or null
+ */
+function clockwork_find_evaluation_form_for_meeting( $meeting_id ) {
+    if ( ! class_exists( 'GFAPI' ) ) {
+        return null;
+    }
+
+    $cached = wp_cache_get( "evaluation_form_{$meeting_id}", 'clockwork' );
+    if ( $cached !== false ) {
+        return $cached ?: null;
+    }
+
+    $forms = GFAPI::get_forms( true ); // active forms only
+
+    foreach ( $forms as $form ) {
+        if ( stripos( $form['title'], 'evaluation' ) === false ) {
+            continue;
+        }
+
+        if ( empty( $form['fields'] ) ) {
+            continue;
+        }
+
+        foreach ( $form['fields'] as $field ) {
+            if ( $field->type === 'hidden' && (string) $field->defaultValue === (string) $meeting_id ) {
+                wp_cache_set( "evaluation_form_{$meeting_id}", $form['id'], 'clockwork', 3600 );
+                return (int) $form['id'];
+            }
+        }
+    }
+
+    wp_cache_set( "evaluation_form_{$meeting_id}", 0, 'clockwork', 3600 );
+    return null;
+}
+
+/**
+ * GET /clockwork/v1/meetings/{id}/feedback
+ *
+ * Returns the evaluation form fields for a meeting, along with whether the
+ * authenticated user has already submitted feedback.
+ */
+function clockwork_get_meeting_feedback( $request ) {
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( 'Unauthorized', 401 );
+    }
+
+    $meeting_id = (int) $request['id'];
+    $product    = wc_get_product( $meeting_id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Meeting not found', 404 );
+    }
+
+    $form_id = clockwork_find_evaluation_form_for_meeting( $meeting_id );
+    if ( ! $form_id ) {
+        return clockwork_error_response( 'No evaluation form found for this meeting', 404 );
+    }
+
+    $form = GFAPI::get_form( $form_id );
+    if ( ! $form ) {
+        return clockwork_error_response( 'Evaluation form could not be loaded', 500 );
+    }
+
+    // Check if user already submitted
+    $search_criteria = [
+        'status'     => 'active',
+        'field_filters' => [
+            [
+                'key'   => 'created_by',
+                'value' => $user->ID,
+            ],
+        ],
+    ];
+    $existing_entries   = GFAPI::get_entries( $form_id, $search_criteria );
+    $already_submitted  = ! empty( $existing_entries );
+
+    // Get form fields (skip hidden/section/html/page fields)
+    $fields = clockwork_get_gravity_form_fields( $form_id, true );
+
+    // Meeting date from ACF or product meta
+    $meeting_date = get_field( 'date', $meeting_id ) ?: '';
+
+    return clockwork_success_response( 'Meeting feedback form', [
+        'form_id'           => $form_id,
+        'form_title'        => $form['title'],
+        'already_submitted' => $already_submitted,
+        'meeting'           => [
+            'id'   => $meeting_id,
+            'name' => $product->get_name(),
+            'date' => $meeting_date,
+        ],
+        'fields'            => $fields,
+    ]);
+}
+
+/**
+ * POST /clockwork/v1/meetings/{id}/feedback
+ *
+ * Submits the user's feedback (evaluation form entry) for a meeting.
+ * Expects JSON body: { "field_values": { "21": "4", "33": "Great event" } }
+ */
+function clockwork_submit_meeting_feedback( $request ) {
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( 'Unauthorized', 401 );
+    }
+
+    $meeting_id = (int) $request['id'];
+    $product    = wc_get_product( $meeting_id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Meeting not found', 404 );
+    }
+
+    $form_id = clockwork_find_evaluation_form_for_meeting( $meeting_id );
+    if ( ! $form_id ) {
+        return clockwork_error_response( 'No evaluation form found for this meeting', 404 );
+    }
+
+    // Check for duplicate submission
+    $search_criteria = [
+        'status'     => 'active',
+        'field_filters' => [
+            [
+                'key'   => 'created_by',
+                'value' => $user->ID,
+            ],
+        ],
+    ];
+    $existing_entries = GFAPI::get_entries( $form_id, $search_criteria );
+    if ( ! empty( $existing_entries ) ) {
+        return clockwork_error_response( 'You have already submitted feedback for this meeting', 409 );
+    }
+
+    $field_values = $request->get_param( 'field_values' );
+    if ( empty( $field_values ) || ! is_array( $field_values ) ) {
+        return clockwork_error_response( 'field_values is required and must be an object of field_id => value pairs' );
+    }
+
+    // Build entry
+    $form  = GFAPI::get_form( $form_id );
+    $entry = [
+        'form_id'    => $form_id,
+        'created_by' => $user->ID,
+        'ip'         => $request->get_header( 'x-forwarded-for' ) ?: $_SERVER['REMOTE_ADDR'] ?? '',
+    ];
+
+    // Auto-fill known fields from user profile and set field values
+    foreach ( $form['fields'] as $field ) {
+        $field_id = (string) $field->id;
+
+        // Auto-fill hidden Product ID field
+        if ( $field->type === 'hidden' && (string) $field->defaultValue === (string) $meeting_id ) {
+            $entry[ $field_id ] = (string) $meeting_id;
+            continue;
+        }
+
+        // Auto-fill name fields (First Name, Surname)
+        if ( $field->type === 'name' && ! empty( $field->inputs ) ) {
+            foreach ( $field->inputs as $input ) {
+                $input_id = (string) $input['id'];
+                $label    = strtolower( $input['label'] ?? '' );
+                if ( strpos( $label, 'first' ) !== false ) {
+                    $entry[ $input_id ] = $user->first_name;
+                } elseif ( strpos( $label, 'last' ) !== false || strpos( $label, 'surname' ) !== false ) {
+                    $entry[ $input_id ] = $user->last_name;
+                }
+            }
+            continue;
+        }
+
+        // Auto-fill email field
+        if ( $field->type === 'email' ) {
+            $entry[ $field_id ] = $user->user_email;
+            continue;
+        }
+
+        // Set user-provided values
+        if ( isset( $field_values[ $field_id ] ) ) {
+            $entry[ $field_id ] = sanitize_text_field( $field_values[ $field_id ] );
+        }
+    }
+
+    $entry_id = GFAPI::add_entry( $entry );
+
+    if ( is_wp_error( $entry_id ) ) {
+        return clockwork_error_response( 'Failed to submit feedback: ' . $entry_id->get_error_message(), 500 );
+    }
+
+    return clockwork_success_response( 'Feedback submitted successfully', [
+        'entry_id' => $entry_id,
+    ]);
 }

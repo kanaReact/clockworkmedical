@@ -7,7 +7,8 @@
       "Bash(C:xamppphpphp.exe -l wp-content/themes/hello-elementor/functions.php)",
       "Bash(php -l:*)",
       "Bash(/c/xampp/php/php.exe:*)",
-      "WebFetch(domain:localhost)"
+      "WebFetch(domain:localhost)",
+      "Bash(/c/xampp/mysql/bin/mysql.exe:*)"
     ]
   }
 }
