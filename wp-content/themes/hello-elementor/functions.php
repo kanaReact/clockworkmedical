@@ -427,6 +427,34 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Members Area Endpoint
+    register_rest_route( $namespace_v1, '/members-area', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_members_area',
+        'permission_callback' => '__return_true',
+    ]);
+
+    // Resources Page Endpoint
+    register_rest_route( $namespace_v1, '/resources-page/(?P<id>\d+)', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_resources_page',
+        'permission_callback' => '__return_true',
+    ]);
+
+    // Form Structure Endpoint
+    register_rest_route( $namespace_v1, '/form/(?P<form_id>\d+)', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_form',
+        'permission_callback' => '__return_true',
+    ]);
+
+    // Form Submit Endpoint
+    register_rest_route( $namespace_v1, '/form/(?P<form_id>\d+)/submit', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_submit_form',
+        'permission_callback' => '__return_true',
+    ]);
+
     // User List Endpoints (Admin)
     register_rest_route( $namespace_custom, '/customers', [
         'methods'             => 'GET',
@@ -3390,7 +3418,7 @@ function clockwork_store_fooevents_tickets( $order, $items, $billing, $user ) {
  */
 function clockwork_set_stripe_key() {
     if ( class_exists( 'WC_Stripe_API' ) ) {
-        WC_Stripe_API::set_secret_key( 'sk_test' );
+        WC_Stripe_API::set_secret_key( 'Your Stripe Key' );
     }
 }
 
@@ -3744,6 +3772,12 @@ function clockwork_confirm_order( $request ) {
             $order->update_meta_data( '_stripe_charge_id', $charge_id );
             $order->update_meta_data( '_stripe_charge_captured', 'yes' );
             $order->set_transaction_id( $charge_id );
+
+            // Fetch and store Stripe receipt URL for later retrieval
+            $charge = WC_Stripe_API::request( [], 'charges/' . $charge_id, 'GET' );
+            if ( ! is_wp_error( $charge ) && ! empty( $charge->receipt_url ) ) {
+                $order->update_meta_data( '_stripe_receipt_url', $charge->receipt_url );
+            }
         }
 
         $order->set_status( 'completed' );
@@ -3926,6 +3960,15 @@ function clockwork_format_order_data( $order, $include_full_details = false ) {
         'payment_title'   => $order->get_payment_method_title(),
         'transaction_id'  => $order->get_transaction_id(),
         'items_count'     => $order->get_item_count(),
+        'receipt_url'     => $order->get_meta( '_stripe_receipt_url' ) ?: $order->get_checkout_order_received_url(),
+        'invoice_pdf_url' => function_exists( 'WPO_WCPDF' ) && $order->get_order_key()
+            ? esc_url_raw( add_query_arg( [
+                'action'        => 'generate_wpo_wcpdf',
+                'document_type' => 'invoice',
+                'order_ids'     => $order->get_id(),
+                'access_key'    => $order->get_order_key(),
+            ], admin_url( 'admin-ajax.php' ) ) )
+            : null,
     ];
 
     // Billing address
@@ -3948,16 +3991,22 @@ function clockwork_format_order_data( $order, $include_full_details = false ) {
         $product    = $item->get_product();
         $product_id = $item->get_product_id();
 
+        // Event start/end date (FooEvents)
+        $event_start_date = get_post_meta( $product_id, 'WooCommerceEventsDate', true );
+        $event_end_date   = get_post_meta( $product_id, 'WooCommerceEventsEndDate', true );
+
         $item_data = [
-            'id'           => $item_id,
-            'product_id'   => $product_id,
-            'name'         => $item->get_name(),
-            'quantity'     => $item->get_quantity(),
-            'subtotal'     => $item->get_subtotal(),
-            'total'        => $item->get_total(),
-            'tax'          => $item->get_total_tax(),
-            'sku'          => $product ? $product->get_sku() : '',
-            'image'        => $product ? wp_get_attachment_url( $product->get_image_id() ) : null,
+            'id'               => $item_id,
+            'product_id'       => $product_id,
+            'name'             => $item->get_name(),
+            'quantity'         => $item->get_quantity(),
+            'subtotal'         => $item->get_subtotal(),
+            'total'            => $item->get_total(),
+            'tax'              => $item->get_total_tax(),
+            'sku'              => $product ? $product->get_sku() : '',
+            'image'            => $product ? wp_get_attachment_url( $product->get_image_id() ) : null,
+            'event_start_date' => $event_start_date ?: null,
+            'event_end_date'   => $event_end_date ?: null,
         ];
 
         // Include EPO options if present
@@ -3974,12 +4023,11 @@ function clockwork_format_order_data( $order, $include_full_details = false ) {
                 }
             }
 
-            // Include event details if FooEvents product
-            $event_date = get_post_meta( $product_id, 'WooCommerceEventsDate', true );
-            if ( $event_date ) {
+            // Include extended event details if FooEvents product
+            if ( $event_start_date ) {
                 $item_data['event'] = [
-                    'date'       => $event_date,
-                    'date_end'   => get_post_meta( $product_id, 'WooCommerceEventsEndDate', true ) ?: null,
+                    'date'       => $event_start_date,
+                    'date_end'   => $event_end_date ?: null,
                     'location'   => get_post_meta( $product_id, 'WooCommerceEventsLocation', true ) ?: null,
                     'timezone'   => get_post_meta( $product_id, 'WooCommerceEventsTimeZone', true ) ?: null,
                 ];
@@ -4040,6 +4088,435 @@ function clockwork_format_order_data( $order, $include_full_details = false ) {
     }
 
     return $data;
+}
+
+
+/*******************************************************************************
+ * MEMBERS AREA API ENDPOINT
+ ******************************************************************************/
+
+/**
+ * GET /clockwork/v1/members-area
+ * Returns all memberships for the authenticated user, with order and event details.
+ */
+function clockwork_get_members_area( $request ) {
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    if ( ! function_exists( 'wc_memberships_get_user_memberships' ) ) {
+        return clockwork_error_response( 'WooCommerce Memberships plugin is not active.', 503 );
+    }
+
+    $memberships = wc_memberships_get_user_memberships( $user->ID );
+    $data        = [];
+
+    foreach ( $memberships as $membership ) {
+        $plan       = $membership->get_plan();
+        $order_id   = $membership->get_order_id();
+        $product_id = $membership->get_product_id();
+
+        // Core membership fields
+        $item = [
+            'membership_id'   => $membership->get_id(),
+            'plan_id'         => $membership->get_plan_id(),
+            'plan_name'       => $plan ? $plan->get_name() : '',
+            'status'          => $membership->get_status(),
+            'start_date'      => $membership->get_start_date() ?: null,
+            'end_date'        => $membership->get_end_date() ?: null,
+            'order_id'        => $order_id ?: null,
+            'product_id'      => $product_id ?: null,
+        ];
+
+        // Meeting / product details
+        if ( $product_id ) {
+            $product = wc_get_product( $product_id );
+            $item['meeting'] = [
+                'name'             => $product ? $product->get_name() : get_the_title( $product_id ),
+                'sku'              => $product ? $product->get_sku() : '',
+                'image'            => $product ? wp_get_attachment_url( $product->get_image_id() ) : null,
+                'event_start_date' => get_post_meta( $product_id, 'WooCommerceEventsDate', true ) ?: null,
+                'event_end_date'   => get_post_meta( $product_id, 'WooCommerceEventsEndDate', true ) ?: null,
+                'event_start_time' => get_post_meta( $product_id, 'WooCommerceEventsHour', true ) ?: null,
+                'event_end_time'   => get_post_meta( $product_id, 'WooCommerceEventsEndHour', true ) ?: null,
+                'location'         => get_post_meta( $product_id, 'WooCommerceEventsLocation', true ) ?: null,
+                'timezone'         => get_post_meta( $product_id, 'WooCommerceEventsTimeZone', true ) ?: null,
+            ];
+        } else {
+            $item['meeting'] = null;
+        }
+
+        // Order summary
+        if ( $order_id ) {
+            $order = wc_get_order( $order_id );
+            if ( $order ) {
+                $item['order'] = [
+                    'id'           => $order->get_id(),
+                    'order_number' => $order->get_order_number(),
+                    'status'       => $order->get_status(),
+                    'status_label' => wc_get_order_status_name( $order->get_status() ),
+                    'total'        => $order->get_total(),
+                    'currency'     => $order->get_currency(),
+                    'date_created' => $order->get_date_created() ? $order->get_date_created()->format( 'Y-m-d H:i:s' ) : null,
+                ];
+            } else {
+                $item['order'] = null;
+            }
+        } else {
+            $item['order'] = null;
+        }
+
+        // Resources page linked to this membership plan
+        $resources_page_id = clockwork_get_plan_resources_page_id( $membership->get_plan_id() );
+        if ( $resources_page_id ) {
+            $item['resources_page'] = [
+                'id'   => $resources_page_id,
+                'url'  => get_permalink( $resources_page_id ),
+                'slug' => get_post_field( 'post_name', $resources_page_id ),
+            ];
+        } else {
+            $item['resources_page'] = null;
+        }
+
+        $data[] = $item;
+    }
+
+    return clockwork_success_response( 'Members area retrieved successfully', [
+        'memberships' => $data,
+        'total'       => count( $data ),
+    ] );
+}
+
+
+/**
+ * Find the resources page ID restricted to a given membership plan.
+ * Rules are stored in the wc_memberships_rules option as an array of rule arrays.
+ *
+ * @param int $plan_id
+ * @return int|null Page ID or null if not found
+ */
+function clockwork_get_plan_resources_page_id( $plan_id ) {
+    $rules = get_option( 'wc_memberships_rules', [] );
+    foreach ( $rules as $rule ) {
+        if (
+            isset( $rule['membership_plan_id'], $rule['rule_type'], $rule['content_type_name'], $rule['object_ids'] ) &&
+            (int) $rule['membership_plan_id'] === (int) $plan_id &&
+            'content_restriction' === $rule['rule_type'] &&
+            'page' === $rule['content_type_name'] &&
+            ! empty( $rule['object_ids'] )
+        ) {
+            return (int) $rule['object_ids'][0];
+        }
+    }
+    return null;
+}
+
+
+/*******************************************************************************
+ * RESOURCES PAGE API ENDPOINT
+ ******************************************************************************/
+
+/**
+ * GET /clockwork/v1/resources-page/{id}
+ * Returns structured content for a membership resources page.
+ */
+function clockwork_get_resources_page( $request ) {
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    $page_id = (int) $request->get_param( 'id' );
+    $post    = get_post( $page_id );
+
+    if ( ! $post || 'page' !== $post->post_type || 'publish' !== $post->post_status ) {
+        return clockwork_error_response( 'Resources page not found.', 404 );
+    }
+
+    // Verify the user has a membership that grants access to this page
+    $has_access = false;
+    if ( function_exists( 'wc_memberships_get_user_memberships' ) ) {
+        $memberships = wc_memberships_get_user_memberships( $user->ID );
+        foreach ( $memberships as $membership ) {
+            if ( clockwork_get_plan_resources_page_id( $membership->get_plan_id() ) === $page_id ) {
+                $has_access = true;
+                break;
+            }
+        }
+    }
+
+    if ( ! $has_access ) {
+        return clockwork_error_response( 'You do not have access to this resources page.', 403 );
+    }
+
+    $content = $post->post_content;
+
+    // --- Extract intro text (strip all HTML, trim whitespace) ---
+    $intro_text = wp_strip_all_tags( $content );
+    $intro_text = preg_replace( '/\s+/', ' ', $intro_text );
+    $intro_text = trim( $intro_text );
+
+    // --- Extract Vimeo videos from cached oembed meta ---
+    $videos      = [];
+    $oembed_meta = get_post_meta( $page_id );
+    foreach ( $oembed_meta as $key => $values ) {
+        if ( 0 !== strpos( $key, '_oembed_' ) || 0 === strpos( $key, '_oembed_time_' ) ) {
+            continue;
+        }
+        $iframe = $values[0] ?? '';
+        if ( empty( $iframe ) || '{{unknown}}' === $iframe ) {
+            continue;
+        }
+        // Extract src URL from iframe
+        if ( preg_match( '/src=["\']([^"\']+)["\']/', $iframe, $src_match ) ) {
+            $embed_url = html_entity_decode( $src_match[1] );
+            // Extract Vimeo video ID
+            preg_match( '/vimeo\.com\/video\/(\d+)/', $embed_url, $id_match );
+            // Extract title from iframe title attribute
+            preg_match( '/title=["\']([^"\']+)["\']/', $iframe, $title_match );
+            $videos[] = [
+                'title'     => isset( $title_match[1] ) ? html_entity_decode( $title_match[1] ) : '',
+                'vimeo_id'  => $id_match[1] ?? null,
+                'embed_url' => $embed_url,
+            ];
+        }
+    }
+
+    // --- Extract Gravity Form IDs from shortcode(s) ---
+    $form_ids = [];
+    if ( preg_match_all( '/form_id=["\']?(\d+)["\']?/', $content, $form_matches ) ) {
+        $form_ids = array_map( 'intval', $form_matches[1] );
+        $form_ids = array_unique( $form_ids );
+    }
+
+    // --- Extract image URLs from content ---
+    $images = [];
+    if ( preg_match_all( '/<img[^>]+src=["\']([^"\']+)["\']/', $content, $img_matches ) ) {
+        foreach ( $img_matches[1] as $img_url ) {
+            $images[] = $img_url;
+        }
+    }
+
+    // --- Extract Vimeo URLs directly from post content (iframes in accordion) ---
+    $recordings = [];
+    if ( preg_match_all( '/player\.vimeo\.com\/video\/(\d+)[^"\']*/', $content, $vimeo_matches, PREG_SET_ORDER ) ) {
+        $seen = [];
+        foreach ( $vimeo_matches as $match ) {
+            $vimeo_id = $match[1];
+            if ( in_array( $vimeo_id, $seen, true ) ) {
+                continue;
+            }
+            $seen[] = $vimeo_id;
+            // Look up cached oembed title
+            $title = '';
+            foreach ( $oembed_meta as $key => $values ) {
+                if ( 0 !== strpos( $key, '_oembed_' ) || 0 === strpos( $key, '_oembed_time_' ) ) {
+                    continue;
+                }
+                $cached = $values[0] ?? '';
+                if ( strpos( $cached, $vimeo_id ) !== false ) {
+                    preg_match( '/title=["\']([^"\']+)["\']/', $cached, $t );
+                    $title = isset( $t[1] ) ? html_entity_decode( $t[1] ) : '';
+                    break;
+                }
+            }
+            $recordings[] = [
+                'vimeo_id'  => $vimeo_id,
+                'title'     => $title,
+                'embed_url' => 'https://player.vimeo.com/video/' . $vimeo_id,
+                'watch_url' => 'https://vimeo.com/' . $vimeo_id,
+            ];
+        }
+    }
+
+    return clockwork_success_response( 'Resources page retrieved successfully', [
+        'id'         => $page_id,
+        'title'      => get_the_title( $page_id ),
+        'slug'       => $post->post_name,
+        'url'        => get_permalink( $page_id ),
+        'intro_text' => $intro_text,
+        'recordings' => $recordings,
+        'form_ids'   => array_values( $form_ids ),
+        'images'     => $images,
+    ] );
+}
+
+
+/*******************************************************************************
+ * FORM API ENDPOINTS
+ ******************************************************************************/
+
+/**
+ * GET /clockwork/v1/form/{form_id}
+ * Returns full form structure for a Gravity Form.
+ */
+function clockwork_get_form( $request ) {
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    if ( ! class_exists( 'GFAPI' ) ) {
+        return clockwork_error_response( 'Gravity Forms is not active.', 503 );
+    }
+
+    $form_id = (int) $request->get_param( 'form_id' );
+    $form    = GFAPI::get_form( $form_id );
+
+    if ( ! $form || ( isset( $form['is_active'] ) && ! $form['is_active'] ) ) {
+        return clockwork_error_response( 'Form not found.', 404 );
+    }
+
+    // Format fields for mobile consumption
+    $fields = [];
+    foreach ( $form['fields'] as $field ) {
+        $type = $field->type;
+
+        // Skip hidden fields (pre-populated server-side)
+        if ( 'hidden' === $type ) {
+            continue;
+        }
+
+        $formatted = [
+            'id'          => $field->id,
+            'type'        => $type,
+            'label'       => $field->label,
+            'description' => $field->description ?? '',
+            'required'    => (bool) $field->isRequired,
+            'read_only'   => strpos( $field->cssClass ?? '', 'gf_readonly' ) !== false,
+            'placeholder' => $field->placeholder ?? '',
+        ];
+
+        // Default value (supports {user:xxx} merge tags → resolve for current user)
+        $default = $field->defaultValue ?? '';
+        if ( $default ) {
+            $default = str_replace( '{user:first_name}', $user->first_name, $default );
+            $default = str_replace( '{user:last_name}', $user->last_name, $default );
+            $default = str_replace( '{user:user_email}', $user->user_email, $default );
+            $default = str_replace( '{user:display_name}', $user->display_name, $default );
+            $formatted['default_value'] = $default;
+        }
+
+        // Choices (radio, checkbox, select, survey)
+        if ( ! empty( $field->choices ) && is_array( $field->choices ) ) {
+            $formatted['choices'] = array_map( function( $c ) {
+                return [
+                    'text'  => $c['text'],
+                    'value' => $c['value'],
+                ];
+            }, $field->choices );
+        }
+
+        // Sub-inputs (name, address, checkbox fields)
+        if ( ! empty( $field->inputs ) && is_array( $field->inputs ) ) {
+            $formatted['inputs'] = array_map( function( $i ) {
+                return [
+                    'id'          => $i['id'],
+                    'label'       => $i['label'] ?? '',
+                    'placeholder' => $i['placeholder'] ?? '',
+                ];
+            }, $field->inputs );
+        }
+
+        // Survey-specific: rating scale type
+        if ( 'survey' === $type ) {
+            $formatted['survey_type']  = $field->inputType ?? 'radio';
+            $formatted['gsurvey_type'] = $field->gsurveyFieldType ?? '';
+        }
+
+        $fields[] = $formatted;
+    }
+
+    return clockwork_success_response( 'Form retrieved successfully', [
+        'form_id'     => $form_id,
+        'title'       => $form['title'],
+        'description' => $form['description'] ?? '',
+        'button_text' => $form['button']['text'] ?? 'Submit',
+        'fields'      => $fields,
+    ] );
+}
+
+
+/**
+ * POST /clockwork/v1/form/{form_id}/submit
+ * Submits a Gravity Form.
+ *
+ * Body: JSON object with field values keyed as input_{id} e.g.:
+ * { "input_6": "John", "input_7": "Doe", "input_8": "john@example.com", "input_21": "4" }
+ */
+function clockwork_submit_form( $request ) {
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    if ( ! class_exists( 'GFAPI' ) ) {
+        return clockwork_error_response( 'Gravity Forms is not active.', 503 );
+    }
+
+    $form_id = (int) $request->get_param( 'form_id' );
+    $form    = GFAPI::get_form( $form_id );
+
+    if ( ! $form || ( isset( $form['is_active'] ) && ! $form['is_active'] ) ) {
+        return clockwork_error_response( 'Form not found.', 404 );
+    }
+
+    // Build input values from request body
+    $body         = $request->get_json_params() ?: [];
+    $input_values = [];
+
+    foreach ( $body as $key => $value ) {
+        // Accept only input_* keys
+        if ( 0 === strpos( $key, 'input_' ) ) {
+            $input_values[ $key ] = sanitize_text_field( (string) $value );
+        }
+    }
+
+    // Auto-fill hidden fields (pre-populated server-side)
+    foreach ( $form['fields'] as $field ) {
+        if ( 'hidden' === $field->type ) {
+            $default = $field->defaultValue ?? '';
+            if ( $default ) {
+                $default = str_replace( '{user:first_name}', $user->first_name, $default );
+                $default = str_replace( '{user:last_name}', $user->last_name, $default );
+                $default = str_replace( '{user:user_email}', $user->user_email, $default );
+                $input_values[ 'input_' . $field->id ] = $default;
+            }
+        }
+    }
+
+    // GF checks is_user_logged_in() internally — set the current user so it passes.
+    wp_set_current_user( $user->ID );
+
+    // Buffer GF's JS/HTML output so it doesn't leak into the REST response.
+    ob_start();
+    $result = GFAPI::submit_form( $form_id, $input_values );
+    ob_end_clean();
+
+    if ( is_wp_error( $result ) ) {
+        return clockwork_error_response( $result->get_error_message(), 500 );
+    }
+
+    if ( ! $result['is_valid'] ) {
+        return new WP_REST_Response( [
+            'success' => false,
+            'message' => 'Form validation failed.',
+            'data'    => [ 'validation_messages' => $result['validation_messages'] ?? [] ],
+        ], 422 );
+    }
+
+    // Build confirmation — GF uses either a message or a redirect URL.
+    $confirmation_type    = $result['confirmation_type'] ?? 'message';
+    $confirmation_message = wp_strip_all_tags( $result['confirmation_message'] ?? '' );
+    $confirmation_redirect = $result['confirmation_redirect'] ?? null;
+
+    return clockwork_success_response( 'Form submitted successfully', [
+        'entry_id'             => $result['entry_id'] ?? null,
+        'confirmation_type'    => $confirmation_type,
+        'confirmation_message' => $confirmation_message ?: null,
+        'confirmation_redirect' => $confirmation_redirect ?: null,
+    ] );
 }
 
 
