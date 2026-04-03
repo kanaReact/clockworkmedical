@@ -4512,6 +4512,21 @@ function clockwork_submit_form( $request ) {
         return clockwork_error_response( 'Form not found.', 404 );
     }
 
+    // Build lookup: input key → Likert row name
+    // e.g. 'input_21_1' => 'glikertrow0b88a139'
+    // GF expects Likert values as "glikertrow{row_id}:glikertcol{col_id}"
+    $likert_row_names = [];
+    foreach ( $form['fields'] as $field ) {
+        if ( 'survey' === $field->type && ! empty( $field->inputs ) && is_array( $field->inputs ) ) {
+            foreach ( $field->inputs as $input ) {
+                if ( ! empty( $input['name'] ) && 0 === strpos( $input['name'], 'glikertrow' ) ) {
+                    $input_key = 'input_' . str_replace( '.', '_', $input['id'] );
+                    $likert_row_names[ $input_key ] = $input['name'];
+                }
+            }
+        }
+    }
+
     // Build input values from request body
     $body         = $request->get_json_params() ?: [];
     $input_values = [];
@@ -4519,7 +4534,12 @@ function clockwork_submit_form( $request ) {
     foreach ( $body as $key => $value ) {
         // Accept only input_* keys
         if ( 0 === strpos( $key, 'input_' ) ) {
-            $input_values[ $key ] = sanitize_text_field( (string) $value );
+            $val = sanitize_text_field( (string) $value );
+            // For Likert sub-inputs: prepend the row name so GF stores the correct combined value
+            if ( isset( $likert_row_names[ $key ] ) && 0 === strpos( $val, 'glikertcol' ) ) {
+                $val = $likert_row_names[ $key ] . ':' . $val;
+            }
+            $input_values[ $key ] = $val;
         }
     }
 
@@ -4864,12 +4884,12 @@ function clockwork_get_certificates( WP_REST_Request $request ) {
     $base_url   = trailingslashit( $upload_dir['baseurl'] ) . 'certificates/user_' . $user_id . '/';
 
     if ( ! is_dir( $base_dir ) ) {
-        return clockwork_success_response( 'No certificates found', [] );
+        return clockwork_success_response( 'No certificates found', [ 'data' => [] ] );
     }
 
     $meetings = scandir( $base_dir );
     if ( $meetings === false ) {
-        return clockwork_success_response( 'No certificates found', [] );
+        return clockwork_success_response( 'No certificates found', [ 'data' => [] ] );
     }
 
     $certificates = [];
@@ -4928,5 +4948,5 @@ function clockwork_get_certificates( WP_REST_Request $request ) {
         ];
     }
 
-    return clockwork_success_response( 'Certificates retrieved successfully', $certificates );
+    return clockwork_success_response( 'Certificates retrieved successfully', [ 'data' => array_values( $certificates ) ] );
 }
