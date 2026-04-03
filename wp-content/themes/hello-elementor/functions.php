@@ -455,6 +455,13 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Certificates Endpoint
+    register_rest_route( $namespace_v1, '/certificates', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_certificates',
+        'permission_callback' => '__return_true',
+    ]);
+
     // User List Endpoints (Admin)
     register_rest_route( $namespace_custom, '/customers', [
         'methods'             => 'GET',
@@ -3418,7 +3425,7 @@ function clockwork_store_fooevents_tickets( $order, $items, $billing, $user ) {
  */
 function clockwork_set_stripe_key() {
     if ( class_exists( 'WC_Stripe_API' ) ) {
-        WC_Stripe_API::set_secret_key( 'Your Stripe Key' );
+        WC_Stripe_API::set_secret_key( '23232323sk_test_51Sff4qLFpZ9avaqWgnUbuu76tY3xSXZdvdU6VQMcVpi0RCxLfNBk08z02eqTHoGlx5UihevmrSUaYMIrGVo2Im8V00VMCVeQ2H' );
     }
 }
 
@@ -4298,34 +4305,77 @@ function clockwork_get_resources_page( $request ) {
         }
     }
 
-    // --- Extract Vimeo URLs directly from post content (iframes in accordion) ---
-    $recordings = [];
-    if ( preg_match_all( '/player\.vimeo\.com\/video\/(\d+)[^"\']*/', $content, $vimeo_matches, PREG_SET_ORDER ) ) {
-        $seen = [];
-        foreach ( $vimeo_matches as $match ) {
-            $vimeo_id = $match[1];
-            if ( in_array( $vimeo_id, $seen, true ) ) {
+    // --- Extract recordings: Vimeo iframes, raw Vimeo URLs, and YouTube URLs ---
+    $recordings     = [];
+    $seen_video_ids = [];
+    $decoded_content = html_entity_decode( $content );
+
+    // 1. Vimeo iframes embedded in accordions / content
+    if ( preg_match_all( '/player\.vimeo\.com\/video\/(\d+)/', $decoded_content, $vimeo_iframe_matches, PREG_SET_ORDER ) ) {
+        foreach ( $vimeo_iframe_matches as $match ) {
+            $vid = $match[1];
+            $key = 'vimeo_' . $vid;
+            if ( in_array( $key, $seen_video_ids, true ) ) {
                 continue;
             }
-            $seen[] = $vimeo_id;
+            $seen_video_ids[] = $key;
             // Look up cached oembed title
             $title = '';
-            foreach ( $oembed_meta as $key => $values ) {
-                if ( 0 !== strpos( $key, '_oembed_' ) || 0 === strpos( $key, '_oembed_time_' ) ) {
+            foreach ( $oembed_meta as $meta_key => $values ) {
+                if ( 0 !== strpos( $meta_key, '_oembed_' ) || 0 === strpos( $meta_key, '_oembed_time_' ) ) {
                     continue;
                 }
                 $cached = $values[0] ?? '';
-                if ( strpos( $cached, $vimeo_id ) !== false ) {
+                if ( strpos( $cached, $vid ) !== false ) {
                     preg_match( '/title=["\']([^"\']+)["\']/', $cached, $t );
                     $title = isset( $t[1] ) ? html_entity_decode( $t[1] ) : '';
                     break;
                 }
             }
             $recordings[] = [
-                'vimeo_id'  => $vimeo_id,
+                'type'      => 'vimeo',
+                'id'        => $vid,
                 'title'     => $title,
-                'embed_url' => 'https://player.vimeo.com/video/' . $vimeo_id,
-                'watch_url' => 'https://vimeo.com/' . $vimeo_id,
+                'embed_url' => 'https://player.vimeo.com/video/' . $vid,
+                'watch_url' => 'https://vimeo.com/' . $vid,
+            ];
+        }
+    }
+
+    // 2. Raw Vimeo URLs (vimeo.com/{id}) not already captured via iframe
+    if ( preg_match_all( '#vimeo\.com/(\d+)#', $decoded_content, $raw_vimeo_matches, PREG_SET_ORDER ) ) {
+        foreach ( $raw_vimeo_matches as $match ) {
+            $vid = $match[1];
+            $key = 'vimeo_' . $vid;
+            if ( in_array( $key, $seen_video_ids, true ) ) {
+                continue; // already captured from iframe
+            }
+            $seen_video_ids[] = $key;
+            $recordings[] = [
+                'type'      => 'vimeo',
+                'id'        => $vid,
+                'title'     => '',
+                'embed_url' => 'https://player.vimeo.com/video/' . $vid,
+                'watch_url' => 'https://vimeo.com/' . $vid,
+            ];
+        }
+    }
+
+    // 3. YouTube URLs — youtube.com/watch?v= and youtu.be/
+    if ( preg_match_all( '#(?:youtube\.com/watch[^"\'<\s]*?[?&]v=|youtu\.be/)([A-Za-z0-9_-]{11})#', $decoded_content, $yt_matches, PREG_SET_ORDER ) ) {
+        foreach ( $yt_matches as $match ) {
+            $vid = $match[1];
+            $key = 'yt_' . $vid;
+            if ( in_array( $key, $seen_video_ids, true ) ) {
+                continue;
+            }
+            $seen_video_ids[] = $key;
+            $recordings[] = [
+                'type'      => 'youtube',
+                'id'        => $vid,
+                'title'     => '',
+                'embed_url' => 'https://www.youtube.com/embed/' . $vid,
+                'watch_url' => 'https://www.youtube.com/watch?v=' . $vid,
             ];
         }
     }
@@ -4767,4 +4817,116 @@ function clockwork_submit_meeting_feedback( $request ) {
     return clockwork_success_response( 'Feedback submitted successfully', [
         'entry_id' => $entry_id,
     ]);
+}
+
+
+/*******************************************************************************
+ * CERTIFICATES ENDPOINT
+ ******************************************************************************/
+
+/**
+ * GET /clockwork/v1/certificates
+ *
+ * Returns the list of certificate PDFs available for the authenticated user,
+ * mirroring the My Account → Certificate Downloads page.
+ *
+ * Each certificate is grouped by meeting (product) and includes a direct
+ * download URL to the PDF stored under:
+ *   wp-content/uploads/certificates/user_{id}/product_{product_id}/
+ *
+ * Response shape:
+ * {
+ *   "success": true,
+ *   "message": "...",
+ *   "data": [
+ *     {
+ *       "product_id": 19986,
+ *       "meeting_name": "BPFS 2025",
+ *       "files": [
+ *         {
+ *           "filename": "bpfs2025-certificate.pdf",
+ *           "url": "https://..."
+ *         }
+ *       ]
+ *     }
+ *   ]
+ * }
+ */
+function clockwork_get_certificates( WP_REST_Request $request ) {
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    $user_id    = $user->ID;
+    $upload_dir = wp_upload_dir();
+    $base_dir   = trailingslashit( $upload_dir['basedir'] ) . 'certificates/user_' . $user_id . '/';
+    $base_url   = trailingslashit( $upload_dir['baseurl'] ) . 'certificates/user_' . $user_id . '/';
+
+    if ( ! is_dir( $base_dir ) ) {
+        return clockwork_success_response( 'No certificates found', [] );
+    }
+
+    $meetings = scandir( $base_dir );
+    if ( $meetings === false ) {
+        return clockwork_success_response( 'No certificates found', [] );
+    }
+
+    $certificates = [];
+
+    foreach ( $meetings as $entry ) {
+        if ( $entry === '.' || $entry === '..' ) {
+            continue;
+        }
+
+        // Expect directories named product_{product_id}
+        if ( ! preg_match( '/^product_(\d+)$/', $entry, $matches ) ) {
+            continue;
+        }
+
+        $product_id   = (int) $matches[1];
+        $meeting_name = get_the_title( $product_id );
+
+        // Fallback: product may have been deleted — look it up from order history
+        if ( empty( $meeting_name ) ) {
+            global $wpdb;
+            $meeting_name = $wpdb->get_var( $wpdb->prepare(
+                "SELECT oi.order_item_name
+                 FROM {$wpdb->prefix}woocommerce_order_items oi
+                 JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim
+                   ON oi.order_item_id = oim.order_item_id
+                 WHERE oim.meta_key = '_product_id'
+                   AND oim.meta_value = %d
+                 LIMIT 1",
+                $product_id
+            ) );
+        }
+
+        if ( empty( $meeting_name ) ) {
+            $meeting_name = 'Meeting #' . $product_id;
+        }
+
+        $product_dir = $base_dir . $entry . '/';
+        $pdf_files   = glob( $product_dir . '*.pdf' );
+        if ( empty( $pdf_files ) ) {
+            continue;
+        }
+
+        $files = [];
+        foreach ( $pdf_files as $pdf_path ) {
+            $filename = basename( $pdf_path );
+            $files[]  = [
+                'filename' => $filename,
+                'url'      => $base_url . $entry . '/' . rawurlencode( $filename ),
+            ];
+        }
+
+        $certificates[] = [
+            'product_id'   => $product_id,
+            'meeting_name' => $meeting_name,
+            'files'        => $files,
+        ];
+    }
+
+    return clockwork_success_response( 'Certificates retrieved successfully', $certificates );
 }
