@@ -462,6 +462,26 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Countries & States Endpoint
+    register_rest_route( $namespace_v1, '/countries', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_countries',
+        'permission_callback' => '__return_true',
+    ]);
+
+    // Exhibitor Portal Endpoints
+    register_rest_route( $namespace_v1, '/exhibitor/events', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_exhibitor_get_events',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_exhibitor_get_event',
+        'permission_callback' => '__return_true',
+    ]);
+
     // User List Endpoints (Admin)
     register_rest_route( $namespace_custom, '/customers', [
         'methods'             => 'GET',
@@ -3425,7 +3445,7 @@ function clockwork_store_fooevents_tickets( $order, $items, $billing, $user ) {
  */
 function clockwork_set_stripe_key() {
     if ( class_exists( 'WC_Stripe_API' ) ) {
-        WC_Stripe_API::set_secret_key( '23232323sk_test_51Sff4qLFpZ9avaqWgnUbuu76tY3xSXZdvdU6VQMcVpi0RCxLfNBk08z02eqTHoGlx5UihevmrSUaYMIrGVo2Im8V00VMCVeQ2H' );
+        WC_Stripe_API::set_secret_key( '2323232sk_test_51Sff4qLFpZ9avaqWgnUbuu76tY3xSXZdvdU6VQMcVpi0RCxLfNBk08z02eqTHoGlx5UihevmrSUaYMIrGVo2Im8V00VMCVeQ2H' );
     }
 }
 
@@ -4478,12 +4498,23 @@ function clockwork_get_form( $request ) {
         $fields[] = $formatted;
     }
 
+    // Check whether the current user has already submitted this form
+    $has_submitted = false;
+    $entries = GFAPI::get_entries( $form_id, [
+        'status'     => 'active',
+        'created_by' => $user->ID,
+    ], null, [ 'page_size' => 1 ] );
+    if ( ! is_wp_error( $entries ) && ! empty( $entries ) ) {
+        $has_submitted = true;
+    }
+
     return clockwork_success_response( 'Form retrieved successfully', [
-        'form_id'     => $form_id,
-        'title'       => $form['title'],
-        'description' => $form['description'] ?? '',
-        'button_text' => $form['button']['text'] ?? 'Submit',
-        'fields'      => $fields,
+        'form_id'       => $form_id,
+        'title'         => $form['title'],
+        'description'   => $form['description'] ?? '',
+        'button_text'   => $form['button']['text'] ?? 'Submit',
+        'has_submitted' => $has_submitted,
+        'fields'        => $fields,
     ] );
 }
 
@@ -4949,4 +4980,277 @@ function clockwork_get_certificates( WP_REST_Request $request ) {
     }
 
     return clockwork_success_response( 'Certificates retrieved successfully', [ 'data' => array_values( $certificates ) ] );
+}
+
+
+/*******************************************************************************
+ * COUNTRIES & STATES API ENDPOINT
+ ******************************************************************************/
+
+/**
+ * GET /clockwork/v1/countries
+ * Returns WooCommerce country list (same source as the billing address dropdown).
+ *
+ * Optional query param:
+ *   ?country=GB  → also returns the states/counties for that country
+ */
+function clockwork_get_countries( $request ) {
+    $wc_countries = new WC_Countries();
+    $countries     = $wc_countries->get_countries();  // [ 'GB' => 'United Kingdom', ... ]
+
+    $formatted = [];
+    foreach ( $countries as $code => $name ) {
+        $formatted[] = [
+            'code' => $code,
+            'name' => $name,
+        ];
+    }
+
+    $data = [ 'countries' => $formatted ];
+
+    // If a specific country code is passed, also return its states
+    $country_code = strtoupper( sanitize_text_field( $request->get_param( 'country' ) ?? '' ) );
+    if ( $country_code ) {
+        $states = $wc_countries->get_states( $country_code );
+        if ( ! empty( $states ) ) {
+            $formatted_states = [];
+            foreach ( $states as $state_code => $state_name ) {
+                $formatted_states[] = [
+                    'code' => $state_code,
+                    'name' => $state_name,
+                ];
+            }
+            $data['states'] = $formatted_states;
+        } else {
+            $data['states'] = [];
+        }
+    }
+
+    return clockwork_success_response( 'Countries retrieved successfully', $data );
+}
+
+
+/*******************************************************************************
+ * EXHIBITOR PORTAL API ENDPOINTS
+ ******************************************************************************/
+
+/**
+ * GET /clockwork/v1/exhibitor/events
+ * Get only the meetings assigned to this exhibitor via WooCommerce Memberships
+ * (mirrors the web portal "my_meetings" Elementor query).
+ * Requires Bearer token of a cm_exhibitor user.
+ */
+function clockwork_exhibitor_get_events( $request ) {
+    $user = clockwork_get_user_from_token( $request );
+
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    if ( ! in_array( 'cm_exhibitor', (array) $user->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    // Collect product IDs from the exhibitor's membership plans — same logic
+    // as the web portal "my_meetings" Elementor query (snippet #76).
+    $my_product_ids = [];
+
+    if ( function_exists( 'wc_memberships_get_user_memberships' ) ) {
+        $memberships = wc_memberships_get_user_memberships( $user->ID );
+
+        foreach ( $memberships as $membership ) {
+            $plan = $membership->get_plan();
+            if ( ! $plan ) {
+                continue;
+            }
+
+            $plan_obj = wc_memberships_get_membership_plan( $plan->get_id() );
+            if ( ! $plan_obj ) {
+                continue;
+            }
+
+            $product_ids = $plan_obj->get_product_ids();
+            if ( is_array( $product_ids ) ) {
+                $my_product_ids = array_merge( $my_product_ids, $product_ids );
+            }
+        }
+
+        $my_product_ids = array_unique( array_filter( array_map( 'intval', $my_product_ids ) ) );
+    }
+
+    if ( empty( $my_product_ids ) ) {
+        return clockwork_success_response( 'Exhibitor Events', [
+            'total_items' => 0,
+            'events'      => [],
+        ]);
+    }
+
+    $page     = max( 1, intval( $request->get_param( 'page' ) ) );
+    $per_page = 10;
+
+    $args = [
+        'post_type'      => 'product',
+        'posts_per_page' => $per_page,
+        'paged'          => $page,
+        'post__in'       => $my_product_ids,
+        'orderby'        => 'post__in',
+    ];
+
+    $query  = new WP_Query( $args );
+    $events = [];
+
+    if ( $query->have_posts() ) {
+        while ( $query->have_posts() ) {
+            $query->the_post();
+            $post_id = get_the_ID();
+            $product = wc_get_product( $post_id );
+
+            if ( ! $product ) {
+                continue;
+            }
+
+            // Build start/end time strings
+            $start_hour    = get_post_meta( $post_id, 'WooCommerceEventsHour', true );
+            $start_minutes = get_post_meta( $post_id, 'WooCommerceEventsMinutes', true );
+            $start_period  = get_post_meta( $post_id, 'WooCommerceEventsPeriod', true );
+            $start_time    = ( $start_hour && $start_minutes )
+                ? $start_hour . ':' . $start_minutes . ( $start_period ? ' ' . $start_period : '' )
+                : null;
+
+            $end_hour    = get_post_meta( $post_id, 'WooCommerceEventsHourEnd', true );
+            $end_minutes = get_post_meta( $post_id, 'WooCommerceEventsMinutesEnd', true );
+            $end_period  = get_post_meta( $post_id, 'WooCommerceEventsEndPeriod', true );
+            $end_time    = ( $end_hour && $end_minutes )
+                ? $end_hour . ':' . $end_minutes . ( $end_period ? ' ' . $end_period : '' )
+                : null;
+
+            $event_date = get_post_meta( $post_id, 'WooCommerceEventsDate', true ) ?: null;
+            $status     = 'upcoming';
+            if ( $event_date && strtotime( $event_date ) < time() ) {
+                $end_date = get_post_meta( $post_id, 'WooCommerceEventsEndDate', true );
+                $status   = ( $end_date && strtotime( $end_date ) >= time() ) ? 'ongoing' : 'past';
+            }
+
+            $events[] = [
+                'id'          => $post_id,
+                'name'        => get_the_title(),
+                'status'      => $status,
+                'date'        => $event_date,
+                'date_end'    => get_post_meta( $post_id, 'WooCommerceEventsEndDate', true ) ?: null,
+                'time_start'  => $start_time,
+                'time_end'    => $end_time,
+                'timezone'    => get_post_meta( $post_id, 'WooCommerceEventsTimeZone', true ) ?: null,
+                'location'    => get_post_meta( $post_id, 'WooCommerceEventsLocation', true ) ?: null,
+                'image'       => get_the_post_thumbnail_url( $post_id, 'full' ) ?: null,
+                'description' => get_the_excerpt(),
+            ];
+        }
+        wp_reset_postdata();
+    }
+
+    return clockwork_success_response( 'Exhibitor Events', [
+        'current_page' => $page,
+        'per_page'     => $per_page,
+        'total_items'  => $query->found_posts,
+        'total_pages'  => $query->max_num_pages,
+        'events'       => $events,
+    ]);
+}
+
+/**
+ * GET /clockwork/v1/exhibitor/events/{id}
+ * Get single event details for the exhibitor portal.
+ * Requires Bearer token of a cm_exhibitor user.
+ */
+function clockwork_exhibitor_get_event( $request ) {
+    $user = clockwork_get_user_from_token( $request );
+
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    if ( ! in_array( 'cm_exhibitor', (array) $user->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    $id      = intval( $request->get_param( 'id' ) );
+    $product = wc_get_product( $id );
+
+    if ( ! $product ) {
+        return clockwork_error_response( 'Event not found', 404 );
+    }
+
+    // Build start/end time strings
+    $start_hour    = get_post_meta( $id, 'WooCommerceEventsHour', true );
+    $start_minutes = get_post_meta( $id, 'WooCommerceEventsMinutes', true );
+    $start_period  = get_post_meta( $id, 'WooCommerceEventsPeriod', true );
+    $start_time    = ( $start_hour && $start_minutes )
+        ? $start_hour . ':' . $start_minutes . ( $start_period ? ' ' . $start_period : '' )
+        : null;
+
+    $end_hour    = get_post_meta( $id, 'WooCommerceEventsHourEnd', true );
+    $end_minutes = get_post_meta( $id, 'WooCommerceEventsMinutesEnd', true );
+    $end_period  = get_post_meta( $id, 'WooCommerceEventsEndPeriod', true );
+    $end_time    = ( $end_hour && $end_minutes )
+        ? $end_hour . ':' . $end_minutes . ( $end_period ? ' ' . $end_period : '' )
+        : null;
+
+    $event_date = get_post_meta( $id, 'WooCommerceEventsDate', true ) ?: null;
+    $status     = 'upcoming';
+    if ( $event_date && strtotime( $event_date ) < time() ) {
+        $end_date = get_post_meta( $id, 'WooCommerceEventsEndDate', true );
+        $status   = ( $end_date && strtotime( $end_date ) >= time() ) ? 'ongoing' : 'past';
+    }
+
+    // Speakers
+    $speakers     = get_field( 'speakers', $id );
+    $speaker_data = [];
+    if ( $speakers ) {
+        foreach ( (array) $speakers as $speaker ) {
+            $speaker_data[] = clockwork_get_person_data( $speaker );
+        }
+    }
+
+    // Convenors
+    $convenors     = get_field( 'meeting_convenors', $id );
+    $convenor_data = [];
+    if ( $convenors ) {
+        foreach ( (array) $convenors as $convenor ) {
+            $convenor_data[] = clockwork_get_person_data( $convenor );
+        }
+    }
+
+    // Sponsors parsed from product description
+    $desc = $product->get_description();
+    $desc = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', '', $desc );
+    $desc = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $desc );
+    $desc = str_replace( '>', ">\n", $desc );
+    $lines = array_filter( array_unique( array_map( 'trim', explode( "\n", $desc ) ) ), fn( $v ) => $v !== '' );
+    $desc  = implode( "\n", $lines );
+    $sponsor_data = clockwork_parse_sponsors_from_html( $desc );
+
+    // Gallery images
+    $gallery_ids    = $product->get_gallery_image_ids();
+    $gallery_images = array_values( array_filter( array_map( 'wp_get_attachment_url', $gallery_ids ) ) );
+
+    $event = [
+        'id'                => $id,
+        'name'              => $product->get_name(),
+        'slug'              => $product->get_slug(),
+        'status'            => $status,
+        'date'              => $event_date,
+        'date_end'          => get_post_meta( $id, 'WooCommerceEventsEndDate', true ) ?: null,
+        'time_start'        => $start_time,
+        'time_end'          => $end_time,
+        'timezone'          => get_post_meta( $id, 'WooCommerceEventsTimeZone', true ) ?: null,
+        'location'          => get_post_meta( $id, 'WooCommerceEventsLocation', true ) ?: null,
+        'short_description' => $product->get_short_description(),
+        'image'             => wp_get_attachment_url( $product->get_image_id() ) ?: null,
+        'gallery_images'    => $gallery_images,
+        'speakers'          => $speaker_data,
+        'convenors'         => $convenor_data,
+        'sponsors'          => $sponsor_data,
+    ];
+
+    return clockwork_success_response( 'Exhibitor Event Details', [ 'event' => $event ] );
 }
