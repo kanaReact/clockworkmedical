@@ -263,6 +263,56 @@ add_filter( 'woocommerce_login_redirect', function() {
 
 
 /*******************************************************************************
+ * EXHIBITOR SCANS — CUSTOM TABLE
+ ******************************************************************************/
+
+/**
+ * Create (or upgrade) the wp_cw_exhibitor_scans table.
+ * Runs on theme activation and on every admin_init as a no-op when current.
+ */
+function clockwork_create_exhibitor_scans_table() {
+    global $wpdb;
+
+    $table      = $wpdb->prefix . 'cw_exhibitor_scans';
+    $charset    = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE {$table} (
+        id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        event_id            BIGINT UNSIGNED NOT NULL,
+        exhibitor_id        BIGINT UNSIGNED NOT NULL,
+        attendee_user_id    BIGINT UNSIGNED DEFAULT NULL,
+        attendee_email      VARCHAR(200)    NOT NULL DEFAULT '',
+        attendee_first_name VARCHAR(100)    NOT NULL DEFAULT '',
+        attendee_last_name  VARCHAR(100)    NOT NULL DEFAULT '',
+        attendee_company    VARCHAR(200)    NOT NULL DEFAULT '',
+        order_id            BIGINT UNSIGNED DEFAULT NULL,
+        note                TEXT            DEFAULT NULL,
+        is_deleted          TINYINT(1)      NOT NULL DEFAULT 0,
+        scanned_at          DATETIME        NOT NULL,
+        updated_at          DATETIME        NOT NULL,
+        PRIMARY KEY  (id),
+        KEY event_id        (event_id),
+        KEY exhibitor_id    (exhibitor_id),
+        KEY attendee_user_id (attendee_user_id),
+        KEY attendee_email  (attendee_email(191)),
+        KEY is_deleted      (is_deleted)
+    ) {$charset};";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta( $sql );
+}
+add_action( 'after_switch_theme', 'clockwork_create_exhibitor_scans_table' );
+
+// Also run on admin_init so the table is created even without a theme re-activation
+add_action( 'admin_init', function () {
+    global $wpdb;
+    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$wpdb->prefix}cw_exhibitor_scans'" ) !== $wpdb->prefix . 'cw_exhibitor_scans' ) {
+        clockwork_create_exhibitor_scans_table();
+    }
+} );
+
+
+/*******************************************************************************
  * CLOCKWORK MEDICAL - REST API
  *
  * API Endpoints for Mobile Application
@@ -479,6 +529,36 @@ function clockwork_register_rest_routes() {
     register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)', [
         'methods'             => 'GET',
         'callback'            => 'clockwork_exhibitor_get_event',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/scans', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_exhibitor_get_scans',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/scans/(?P<scan_id>\d+)', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_exhibitor_get_scan_detail',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/scans/(?P<scan_id>\d+)/delete', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_exhibitor_delete_scan',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/scan', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_exhibitor_scan_qr',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/note', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_exhibitor_add_note',
         'permission_callback' => '__return_true',
     ]);
 
@@ -5253,4 +5333,476 @@ function clockwork_exhibitor_get_event( $request ) {
     ];
 
     return clockwork_success_response( 'Exhibitor Event Details', [ 'event' => $event ] );
+}
+
+/**
+ * POST /clockwork/v1/exhibitor/events/{id}/scan
+ *
+ * Scans a QR code at an event and looks up whether the person has a
+ * completed order for that event.
+ *
+ * Body (JSON) — two formats supported:
+ *   { "qr_data": "Vikash,Khatri,Clockwork,vikash@yopmail.com" }
+ *   OR
+ *   { "first_name": "Vikash", "last_name": "Khatri", "company": "Clockwork", "email": "vikash@yopmail.com" }
+ *
+ * QR format: first_name,last_name,company,email
+ */
+/**
+ * GET /clockwork/v1/exhibitor/events/{id}/scans
+ *
+ * Returns all scan records for this exhibitor at the given event,
+ * plus a total count. Excludes soft-deleted rows.
+ *
+ * Optional query params:
+ *   ?page=1&per_page=20
+ */
+function clockwork_exhibitor_get_scans( $request ) {
+    $exhibitor = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $exhibitor ) ) {
+        return clockwork_error_response( $exhibitor->get_error_message(), 401 );
+    }
+    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    $event_id = intval( $request->get_param( 'id' ) );
+    if ( ! wc_get_product( $event_id ) ) {
+        return clockwork_error_response( 'Event not found.', 404 );
+    }
+
+    $page     = max( 1, intval( $request->get_param( 'page' ) ?: 1 ) );
+    $per_page = max( 1, min( 100, intval( $request->get_param( 'per_page' ) ?: 20 ) ) );
+    $offset   = ( $page - 1 ) * $per_page;
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'cw_exhibitor_scans';
+
+    $total = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(*) FROM {$table}
+         WHERE event_id = %d AND exhibitor_id = %d AND is_deleted = 0",
+        $event_id, $exhibitor->ID
+    ) );
+
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT * FROM {$table}
+         WHERE event_id = %d AND exhibitor_id = %d AND is_deleted = 0
+         ORDER BY scanned_at DESC
+         LIMIT %d OFFSET %d",
+        $event_id, $exhibitor->ID, $per_page, $offset
+    ), ARRAY_A );
+
+    $records = array_map( function( $row ) {
+        return [
+            'scan_id'            => (int) $row['id'],
+            'attendee_user_id'   => $row['attendee_user_id'] ? (int) $row['attendee_user_id'] : null,
+            'attendee_email'     => $row['attendee_email'],
+            'attendee_first_name'=> $row['attendee_first_name'],
+            'attendee_last_name' => $row['attendee_last_name'],
+            'attendee_company'   => $row['attendee_company'],
+            'order_id'           => $row['order_id'] ? (int) $row['order_id'] : null,
+            'note'               => $row['note'],
+            'scanned_at'         => $row['scanned_at'],
+            'updated_at'         => $row['updated_at'],
+        ];
+    }, $rows );
+
+    return clockwork_success_response( 'Scan records retrieved', [
+        'event_id'    => $event_id,
+        'total'       => $total,
+        'page'        => $page,
+        'per_page'    => $per_page,
+        'total_pages' => (int) ceil( $total / $per_page ),
+        'scans'       => $records,
+    ] );
+}
+
+/**
+ * GET /clockwork/v1/exhibitor/events/{id}/scans/{scan_id}
+ *
+ * Returns full details of a single scan record including complete attendee profile.
+ */
+function clockwork_exhibitor_get_scan_detail( $request ) {
+    $exhibitor = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $exhibitor ) ) {
+        return clockwork_error_response( $exhibitor->get_error_message(), 401 );
+    }
+    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    $event_id = intval( $request->get_param( 'id' ) );
+    $scan_id  = intval( $request->get_param( 'scan_id' ) );
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'cw_exhibitor_scans';
+
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$table}
+         WHERE id = %d AND event_id = %d AND exhibitor_id = %d AND is_deleted = 0
+         LIMIT 1",
+        $scan_id, $event_id, $exhibitor->ID
+    ), ARRAY_A );
+
+    if ( ! $row ) {
+        return clockwork_error_response( 'Scan record not found or access denied.', 404 );
+    }
+
+    // --- Attendee details ---
+    $attendee_profile = [
+        'user_id'     => $row['attendee_user_id'] ? (int) $row['attendee_user_id'] : null,
+        'email'       => $row['attendee_email'],
+        'first_name'  => $row['attendee_first_name'],
+        'last_name'   => $row['attendee_last_name'],
+        'company'     => $row['attendee_company'],
+        'phone'       => null,
+        'job_title'   => null,
+        'hospital_institution' => null,
+        'medical_specialties'  => null,
+        'address'     => null,
+        'country'     => null,
+    ];
+
+    // Enrich from WP user profile if a registered account exists
+    if ( ! empty( $row['attendee_user_id'] ) ) {
+        $uid = (int) $row['attendee_user_id'];
+
+        $attendee_profile['phone']                = get_user_meta( $uid, 'billing_phone', true ) ?: null;
+        $attendee_profile['job_title']            = get_user_meta( $uid, 'job_title', true ) ?: null;
+        $attendee_profile['hospital_institution'] = get_user_meta( $uid, 'hospital_institution', true ) ?: null;
+        $attendee_profile['medical_specialties']  = get_user_meta( $uid, 'medical_specialties', true ) ?: null;
+        $attendee_profile['dietary_allergies']    = get_user_meta( $uid, 'dietary_allergies', true ) ?: null;
+
+        $address_parts = array_filter( [
+            get_user_meta( $uid, 'billing_address_1', true ),
+            get_user_meta( $uid, 'billing_address_2', true ),
+            get_user_meta( $uid, 'billing_city', true ),
+            get_user_meta( $uid, 'billing_state', true ),
+            get_user_meta( $uid, 'billing_postcode', true ),
+        ] );
+        $attendee_profile['address'] = ! empty( $address_parts ) ? implode( ', ', $address_parts ) : null;
+        $attendee_profile['country'] = get_user_meta( $uid, 'billing_country', true ) ?: null;
+    }
+
+    // --- Order summary ---
+    $order_summary = null;
+    if ( ! empty( $row['order_id'] ) ) {
+        $order = wc_get_order( (int) $row['order_id'] );
+        if ( $order ) {
+            $order_summary = [
+                'order_id'     => $order->get_id(),
+                'order_number' => $order->get_order_number(),
+                'status'       => $order->get_status(),
+                'total'        => $order->get_total(),
+                'currency'     => $order->get_currency(),
+                'date_created' => $order->get_date_created()
+                    ? $order->get_date_created()->format( 'Y-m-d H:i:s' )
+                    : null,
+            ];
+        }
+    }
+
+    // --- Event summary ---
+    $product = wc_get_product( $event_id );
+    $event_summary = [
+        'event_id'   => $event_id,
+        'event_name' => $product ? $product->get_name() : get_the_title( $event_id ),
+        'date'       => get_post_meta( $event_id, 'WooCommerceEventsDate', true ) ?: null,
+        'location'   => get_post_meta( $event_id, 'WooCommerceEventsLocation', true ) ?: null,
+    ];
+
+    return clockwork_success_response( 'Scan detail retrieved', [
+        'scan'     => [
+            'scan_id'    => (int) $row['id'],
+            'note'       => $row['note'],
+            'scanned_at' => $row['scanned_at'],
+            'updated_at' => $row['updated_at'],
+        ],
+        'attendee' => $attendee_profile,
+        'order'    => $order_summary,
+        'event'    => $event_summary,
+    ] );
+}
+
+/**
+ * POST /clockwork/v1/exhibitor/events/{id}/scans/{scan_id}/delete
+ * Soft-deletes a scan record by setting is_deleted = 1.
+ */
+function clockwork_exhibitor_delete_scan( $request ) {
+    $exhibitor = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $exhibitor ) ) {
+        return clockwork_error_response( $exhibitor->get_error_message(), 401 );
+    }
+    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    $event_id = intval( $request->get_param( 'id' ) );
+    $scan_id  = intval( $request->get_param( 'scan_id' ) );
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'cw_exhibitor_scans';
+
+    // Verify the row belongs to this exhibitor + event and is not already deleted
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT id FROM {$table}
+         WHERE id = %d AND event_id = %d AND exhibitor_id = %d AND is_deleted = 0
+         LIMIT 1",
+        $scan_id, $event_id, $exhibitor->ID
+    ) );
+
+    if ( ! $row ) {
+        return clockwork_error_response( 'Scan record not found or already deleted.', 404 );
+    }
+
+    $wpdb->update(
+        $table,
+        [ 'is_deleted' => 1, 'updated_at' => current_time( 'Y-m-d H:i:s' ) ],
+        [ 'id' => $scan_id ],
+        [ '%d', '%s' ],
+        [ '%d' ]
+    );
+
+    return clockwork_success_response( 'Scan record deleted successfully', [
+        'scan_id' => $scan_id,
+    ] );
+}
+
+function clockwork_exhibitor_scan_qr( $request ) {
+    $exhibitor = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $exhibitor ) ) {
+        return clockwork_error_response( $exhibitor->get_error_message(), 401 );
+    }
+    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    $event_id = intval( $request->get_param( 'id' ) );
+    if ( ! wc_get_product( $event_id ) ) {
+        return clockwork_error_response( 'Event not found.', 404 );
+    }
+
+    $params = $request->get_json_params();
+
+    // Parse QR data string OR individual fields
+    if ( ! empty( $params['qr_data'] ) ) {
+        $parts      = array_map( 'trim', explode( ',', $params['qr_data'] ) );
+        $first_name = sanitize_text_field( $parts[0] ?? '' );
+        $last_name  = sanitize_text_field( $parts[1] ?? '' );
+        $company    = sanitize_text_field( $parts[2] ?? '' );
+        $email      = sanitize_email( $parts[3] ?? '' );
+    } else {
+        $first_name = sanitize_text_field( $params['first_name'] ?? '' );
+        $last_name  = sanitize_text_field( $params['last_name'] ?? '' );
+        $company    = sanitize_text_field( $params['company'] ?? '' );
+        $email      = sanitize_email( $params['email'] ?? '' );
+    }
+
+    if ( empty( $email ) ) {
+        return clockwork_error_response( 'Email is required (from QR data or field).', 400 );
+    }
+
+    // Find the WordPress user by email
+    $attendee = get_user_by( 'email', $email );
+
+    // Search for a completed order containing this event product
+    $order_found   = null;
+    $search_args   = [
+        'status'        => 'completed',
+        'billing_email' => $email,
+        'limit'         => -1,
+        'return'        => 'ids',
+    ];
+
+    // If we have a registered user, also search by customer_id for reliability
+    if ( $attendee ) {
+        $search_args['customer_id'] = $attendee->ID;
+        unset( $search_args['billing_email'] );
+    }
+
+    $order_ids = wc_get_orders( $search_args );
+
+    foreach ( $order_ids as $order_id ) {
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) {
+            continue;
+        }
+        foreach ( $order->get_items() as $item ) {
+            if ( (int) $item->get_product_id() === $event_id ) {
+                $order_found = $order;
+                break 2;
+            }
+        }
+    }
+
+    $has_valid_registration = ! is_null( $order_found );
+
+    // Build attendee details from order billing (works even for guest checkouts)
+    if ( $order_found ) {
+        $attendee_details = [
+            'first_name'  => $order_found->get_billing_first_name(),
+            'last_name'   => $order_found->get_billing_last_name(),
+            'email'       => $order_found->get_billing_email(),
+            'phone'       => $order_found->get_billing_phone(),
+            'company'     => $order_found->get_billing_company(),
+            'address'     => trim( implode( ', ', array_filter( [
+                $order_found->get_billing_address_1(),
+                $order_found->get_billing_address_2(),
+                $order_found->get_billing_city(),
+                $order_found->get_billing_state(),
+                $order_found->get_billing_postcode(),
+                $order_found->get_billing_country(),
+            ] ) ) ),
+        ];
+
+        // Supplement with WP user profile fields if account exists
+        if ( $attendee ) {
+            $attendee_details['user_id']            = $attendee->ID;
+            $attendee_details['hospital_institution'] = get_user_meta( $attendee->ID, 'hospital_institution', true ) ?: null;
+            $attendee_details['job_title']            = get_user_meta( $attendee->ID, 'job_title', true ) ?: null;
+            $attendee_details['medical_specialties']  = get_user_meta( $attendee->ID, 'medical_specialties', true ) ?: null;
+        }
+
+        $order_summary = [
+            'order_id'     => $order_found->get_id(),
+            'order_number' => $order_found->get_order_number(),
+            'status'       => $order_found->get_status(),
+            'date'         => $order_found->get_date_created()
+                ? $order_found->get_date_created()->format( 'Y-m-d H:i:s' )
+                : null,
+            'total'        => $order_found->get_total(),
+            'currency'     => $order_found->get_currency(),
+        ];
+    } else {
+        // No completed order found — return what came from the QR code
+        $attendee_details = [
+            'first_name' => $first_name,
+            'last_name'  => $last_name,
+            'email'      => $email,
+            'company'    => $company,
+        ];
+        $order_summary = null;
+    }
+
+    // Persist scan record when registration is confirmed
+    if ( $has_valid_registration && $attendee ) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cw_exhibitor_scans';
+        $now   = current_time( 'Y-m-d H:i:s' );
+
+        // Check for existing non-deleted scan: same exhibitor + same event + same attendee
+        $existing_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$table}
+             WHERE event_id = %d AND exhibitor_id = %d AND attendee_user_id = %d AND is_deleted = 0
+             LIMIT 1",
+            $event_id, $exhibitor->ID, $attendee->ID
+        ) );
+
+        if ( $existing_id ) {
+            // Already scanned — just refresh the timestamp
+            $wpdb->update(
+                $table,
+                [ 'scanned_at' => $now, 'updated_at' => $now ],
+                [ 'id' => $existing_id ],
+                [ '%s', '%s' ],
+                [ '%d' ]
+            );
+            $scan_id = (int) $existing_id;
+        } else {
+            // New scan — insert a fresh row
+            $wpdb->insert(
+                $table,
+                [
+                    'event_id'            => $event_id,
+                    'exhibitor_id'        => $exhibitor->ID,
+                    'attendee_user_id'    => $attendee->ID,
+                    'attendee_email'      => $attendee->user_email,
+                    'attendee_first_name' => $attendee->first_name,
+                    'attendee_last_name'  => $attendee->last_name,
+                    'attendee_company'    => get_user_meta( $attendee->ID, 'billing_company', true ) ?: '',
+                    'order_id'            => $order_found->get_id(),
+                    'note'                => null,
+                    'is_deleted'          => 0,
+                    'scanned_at'          => $now,
+                    'updated_at'          => $now,
+                ],
+                [ '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%d', '%s', '%s' ]
+            );
+            $scan_id = (int) $wpdb->insert_id;
+        }
+
+        $attendee_details['scan_id']       = $scan_id;
+        $attendee_details['scan_recorded'] = true;
+    }
+
+    return clockwork_success_response( 'QR scan result', [
+        'has_valid_registration' => $has_valid_registration,
+        'attendee'               => $attendee_details,
+        'order'                  => $order_summary,
+    ] );
+}
+
+/**
+ * POST /clockwork/v1/exhibitor/events/{id}/note
+ *
+ * Adds a note about an attendee at a specific event.
+ * Notes are stored on the attendee's user account and attributed to the
+ * exhibitor who added them.
+ *
+ * Body: { "email": "vikash@yopmail.com", "note": "Interested in product X" }
+ */
+function clockwork_exhibitor_add_note( $request ) {
+    $exhibitor = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $exhibitor ) ) {
+        return clockwork_error_response( $exhibitor->get_error_message(), 401 );
+    }
+    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    $event_id = intval( $request->get_param( 'id' ) );
+    if ( ! wc_get_product( $event_id ) ) {
+        return clockwork_error_response( 'Event not found.', 404 );
+    }
+
+    $params  = $request->get_json_params();
+    $scan_id = intval( $params['scan_id'] ?? 0 );
+    $note    = sanitize_textarea_field( $params['note'] ?? '' );
+
+    if ( ! $scan_id ) {
+        return clockwork_error_response( 'scan_id is required.', 400 );
+    }
+    if ( empty( $note ) ) {
+        return clockwork_error_response( 'Note text is required.', 400 );
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'cw_exhibitor_scans';
+
+    // Verify the scan row belongs to this exhibitor + event and is not deleted
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT id FROM {$table}
+         WHERE id = %d AND event_id = %d AND exhibitor_id = %d AND is_deleted = 0
+         LIMIT 1",
+        $scan_id, $event_id, $exhibitor->ID
+    ) );
+
+    if ( ! $row ) {
+        return clockwork_error_response( 'Scan record not found or access denied.', 404 );
+    }
+
+    $now = current_time( 'Y-m-d H:i:s' );
+    $wpdb->update(
+        $table,
+        [ 'note' => $note, 'updated_at' => $now ],
+        [ 'id'   => $scan_id ],
+        [ '%s',    '%s' ],
+        [ '%d' ]
+    );
+
+    return clockwork_success_response( 'Note saved successfully', [
+        'scan_id'    => $scan_id,
+        'note'       => $note,
+        'updated_at' => $now,
+    ] );
 }
