@@ -550,6 +550,12 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/scans/export', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_exhibitor_export_scans',
+        'permission_callback' => '__return_true',
+    ]);
+
     register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/scan', [
         'methods'             => 'POST',
         'callback'            => 'clockwork_exhibitor_scan_qr',
@@ -5806,3 +5812,212 @@ function clockwork_exhibitor_add_note( $request ) {
         'updated_at' => $now,
     ] );
 }
+
+
+/**
+ * GET /clockwork/v1/exhibitor/events/{id}/scans/export
+ *
+ * Streams an Excel (.xlsx) file of all scan records for the authenticated
+ * exhibitor at the given event. Excludes soft-deleted rows.
+ */
+function clockwork_exhibitor_export_scans( $request ) {
+    $exhibitor = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $exhibitor ) ) {
+        return clockwork_error_response( $exhibitor->get_error_message(), 401 );
+    }
+    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    $event_id = intval( $request->get_param( 'id' ) );
+    $product  = wc_get_product( $event_id );
+    if ( ! $product ) {
+        return clockwork_error_response( 'Event not found.', 404 );
+    }
+
+    // Load PhpSpreadsheet
+    $autoloader = WP_PLUGIN_DIR . '/wp-all-export-pro/vendor/autoload.php';
+    if ( ! file_exists( $autoloader ) ) {
+        return clockwork_error_response( 'Excel library not available. Contact administrator.', 503 );
+    }
+    require_once $autoloader;
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'cw_exhibitor_scans';
+
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT * FROM {$table}
+         WHERE event_id = %d AND exhibitor_id = %d AND is_deleted = 0
+         ORDER BY scanned_at ASC",
+        $event_id, $exhibitor->ID
+    ), ARRAY_A );
+
+    $event_name     = $product->get_name();
+    $event_date     = get_post_meta( $event_id, 'WooCommerceEventsDate', true ) ?: '';
+    $event_location = get_post_meta( $event_id, 'WooCommerceEventsLocation', true ) ?: '';
+    $exhibitor_name = trim( $exhibitor->first_name . ' ' . $exhibitor->last_name ) ?: $exhibitor->display_name;
+
+    // ── Build spreadsheet ─────────────────────────────────────────────────────
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet       = $spreadsheet->getActiveSheet();
+    $sheet->setTitle( 'Scanned Attendees' );
+
+    // Event info block (rows 1–5)
+    $info = [
+        1 => [ 'Event:', $event_name ],
+        2 => [ 'Date:', $event_date ],
+        3 => [ 'Location:', $event_location ],
+        4 => [ 'Exhibitor:', $exhibitor_name ],
+        5 => [ 'Exported:', current_time( 'd M Y H:i' ) ],
+    ];
+    foreach ( $info as $r => [ $label, $value ] ) {
+        $sheet->setCellValue( "A{$r}", $label );
+        $sheet->setCellValue( "B{$r}", $value );
+        $sheet->getStyle( "A{$r}" )->getFont()->setBold( true );
+    }
+
+    // Column headers (row 7)
+    $header_row = 7;
+    $headers    = [
+        'A' => 'Scan ID',
+        'B' => 'First Name',
+        'C' => 'Last Name',
+        'D' => 'Email',
+        'E' => 'Company',
+        'F' => 'Job Title',
+        'G' => 'Hospital / Institution',
+        'H' => 'Medical Specialties',
+        'I' => 'Phone',
+        'J' => 'Order ID',
+        'K' => 'Order Status',
+        'L' => 'Note',
+        'M' => 'Scanned At',
+    ];
+
+    foreach ( $headers as $col => $label ) {
+        $sheet->setCellValue( "{$col}{$header_row}", $label );
+        $sheet->getStyle( "{$col}{$header_row}" )->getFont()->setBold( true );
+        $sheet->getStyle( "{$col}{$header_row}" )->getFill()
+              ->setFillType( \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID )
+              ->getStartColor()->setRGB( '1F4E79' );
+        $sheet->getStyle( "{$col}{$header_row}" )->getFont()->getColor()->setRGB( 'FFFFFF' );
+    }
+
+    // Data rows
+    $data_row = $header_row + 1;
+    foreach ( $rows as $row ) {
+        $uid         = ! empty( $row['attendee_user_id'] ) ? (int) $row['attendee_user_id'] : null;
+        $job_title   = $uid ? ( get_user_meta( $uid, 'job_title', true ) ?: '' ) : '';
+        $hospital    = $uid ? ( get_user_meta( $uid, 'hospital_institution', true ) ?: '' ) : '';
+        $specialties = $uid ? ( get_user_meta( $uid, 'medical_specialties', true ) ?: '' ) : '';
+        $phone       = $uid ? ( get_user_meta( $uid, 'billing_phone', true ) ?: '' ) : '';
+
+        $order_status = '';
+        if ( ! empty( $row['order_id'] ) ) {
+            $order        = wc_get_order( (int) $row['order_id'] );
+            $order_status = $order ? wc_get_order_status_name( $order->get_status() ) : '';
+        }
+
+        $sheet->setCellValue( "A{$data_row}", (int) $row['id'] );
+        $sheet->setCellValue( "B{$data_row}", $row['attendee_first_name'] );
+        $sheet->setCellValue( "C{$data_row}", $row['attendee_last_name'] );
+        $sheet->setCellValue( "D{$data_row}", $row['attendee_email'] );
+        $sheet->setCellValue( "E{$data_row}", $row['attendee_company'] );
+        $sheet->setCellValue( "F{$data_row}", $job_title );
+        $sheet->setCellValue( "G{$data_row}", $hospital );
+        $sheet->setCellValue( "H{$data_row}", $specialties );
+        $sheet->setCellValue( "I{$data_row}", $phone );
+        $sheet->setCellValue( "J{$data_row}", $row['order_id'] ? (int) $row['order_id'] : '' );
+        $sheet->setCellValue( "K{$data_row}", $order_status );
+        $sheet->setCellValue( "L{$data_row}", $row['note'] ?? '' );
+        $sheet->setCellValue( "M{$data_row}", $row['scanned_at'] );
+
+        if ( $data_row % 2 === 0 ) {
+            $sheet->getStyle( "A{$data_row}:M{$data_row}" )->getFill()
+                  ->setFillType( \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID )
+                  ->getStartColor()->setRGB( 'EBF3FB' );
+        }
+
+        $data_row++;
+    }
+
+    foreach ( array_keys( $headers ) as $col ) {
+        $sheet->getColumnDimension( $col )->setAutoSize( true );
+    }
+
+    // ── Save to wp-content/uploads/cw-exports/ ────────────────────────────────
+    $upload     = wp_upload_dir();
+    $export_dir = trailingslashit( $upload['basedir'] ) . 'cw-exports/';
+
+    if ( ! file_exists( $export_dir ) ) {
+        wp_mkdir_p( $export_dir );
+        // Block direct browser access
+        file_put_contents( $export_dir . '.htaccess', 'deny from all' );
+    }
+
+    // Clean up exports older than 1 hour
+    foreach ( glob( $export_dir . '*.xlsx' ) as $old_file ) {
+        if ( filemtime( $old_file ) < ( time() - 3600 ) ) {
+            @unlink( $old_file );
+        }
+    }
+
+    $filename  = sanitize_file_name(
+        'scans-' . sanitize_title( $event_name ) . '-' . $exhibitor->ID . '-' . time() . '.xlsx'
+    );
+    $file_path = $export_dir . $filename;
+
+    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx( $spreadsheet );
+    $writer->save( $file_path );
+
+    // Generate a signed, time-limited download token
+    $token      = wp_hash( $file_path . $exhibitor->ID . wp_salt() );
+    $download_url = add_query_arg( [
+        'cw_export'  => 'scan',
+        'file'       => base64_encode( $filename ),
+        'token'      => $token,
+    ], site_url( '/' ) );
+
+    return clockwork_success_response( 'Export ready', [
+        'download_url' => $download_url,
+        'filename'     => $filename,
+        'total_rows'   => count( $rows ),
+        'expires_in'   => '1 hour',
+    ] );
+}
+
+// ── Serve the exported file when the download URL is hit ─────────────────────
+add_action( 'init', function () {
+    if ( empty( $_GET['cw_export'] ) || $_GET['cw_export'] !== 'scan' ) {
+        return;
+    }
+
+    $filename = sanitize_file_name( base64_decode( $_GET['file'] ?? '' ) );
+    $token    = sanitize_text_field( $_GET['token'] ?? '' );
+
+    $upload     = wp_upload_dir();
+    $file_path  = trailingslashit( $upload['basedir'] ) . 'cw-exports/' . $filename;
+
+    $expected_token = wp_hash( $file_path . wp_salt() );
+
+    // Allow token generated with any valid user ID
+    $valid = false;
+    $users = get_users( [ 'role' => 'cm_exhibitor', 'fields' => 'ID' ] );
+    foreach ( $users as $uid ) {
+        if ( hash_equals( wp_hash( $file_path . $uid . wp_salt() ), $token ) ) {
+            $valid = true;
+            break;
+        }
+    }
+
+    if ( ! $valid || ! file_exists( $file_path ) ) {
+        wp_die( 'Invalid or expired download link.', 403 );
+    }
+
+    header( 'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' );
+    header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+    header( 'Content-Length: ' . filesize( $file_path ) );
+    header( 'Cache-Control: max-age=0' );
+    readfile( $file_path );
+    exit;
+} );
