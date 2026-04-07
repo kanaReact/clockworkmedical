@@ -1972,6 +1972,7 @@ function clockwork_register_user_api( $request ) {
     $first_name = sanitize_text_field( $params['first_name'] ?? '' );
     $last_name  = sanitize_text_field( $params['last_name'] ?? '' );
     $username   = sanitize_user( $params['username'] ?? '' );
+    $type       = sanitize_text_field( $params['type'] ?? '' );
 
     // Extended profile fields
     $phone                = sanitize_text_field( $params['phone'] ?? '' );
@@ -2028,6 +2029,19 @@ function clockwork_register_user_api( $request ) {
         return clockwork_error_response( 'Category is required', 400 );
     }
 
+    if ( empty( $type ) ) {
+        return clockwork_error_response( 'Type is required', 400 );
+    }
+
+    $type_role_map = [
+        'customer'  => 'customer',
+        'exhibitor' => 'cm_exhibitor',
+    ];
+
+    if ( ! array_key_exists( $type, $type_role_map ) ) {
+        return clockwork_error_response( 'Invalid type. Allowed values: customer, exhibitor', 400 );
+    }
+
     if ( email_exists( $email ) ) {
         return clockwork_error_response( 'Email already registered', 409 );
     }
@@ -2078,9 +2092,9 @@ function clockwork_register_user_api( $request ) {
     update_user_meta( $user_id, 'privacy_settings', $privacy_settings );
     update_user_meta( $user_id, 'medical_specialities', $medical_specialities );
 
-    // Set default role as customer
+    // Set role based on registration type
     $user = new WP_User( $user_id );
-    $user->set_role( 'customer' );
+    $user->set_role( $type_role_map[ $type ] );
 
     $token = clockwork_generate_auth_token( $user_id );
     $user = get_user_by( 'ID', $user_id );
