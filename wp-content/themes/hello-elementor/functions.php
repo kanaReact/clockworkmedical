@@ -4601,8 +4601,13 @@ function clockwork_get_form( $request ) {
     // Check whether the current user has already submitted this form
     $has_submitted = false;
     $entries = GFAPI::get_entries( $form_id, [
-        'status'     => 'active',
-        'created_by' => $user->ID,
+        'status'        => 'active',
+        'field_filters' => [
+            [
+                'key'   => 'created_by',
+                'value' => $user->ID,
+            ],
+        ],
     ], null, [ 'page_size' => 1 ] );
     if ( ! is_wp_error( $entries ) && ! empty( $entries ) ) {
         $has_submitted = true;
@@ -5739,7 +5744,7 @@ function clockwork_exhibitor_scan_qr( $request ) {
                     'attendee_email'      => $attendee->user_email,
                     'attendee_first_name' => $attendee->first_name,
                     'attendee_last_name'  => $attendee->last_name,
-                    'attendee_company'    => get_user_meta( $attendee->ID, 'billing_company', true ) ?: '',
+                    'attendee_company'    => $order_found->get_billing_company() ?: $company,
                     'order_id'            => $order_found->get_id(),
                     'note'                => null,
                     'is_deleted'          => 0,
