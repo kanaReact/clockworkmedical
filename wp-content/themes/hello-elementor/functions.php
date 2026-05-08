@@ -449,6 +449,13 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    // Validate Coupon Endpoint
+    register_rest_route( $namespace_v1, '/validate-coupon', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_validate_coupon',
+        'permission_callback' => '__return_true',
+    ]);
+
     // Place Order Endpoint
     register_rest_route( $namespace_v1, '/place-order', [
         'methods'             => 'POST',
@@ -6068,3 +6075,139 @@ add_action( 'init', function () {
     readfile( $file_path );
     exit;
 } );
+
+/**
+ * POST /clockwork/v1/validate-coupon
+ * Validates a coupon code against the given cart items and returns discount details.
+ *
+ * Request body:
+ *   coupon_code  string   required  The coupon code to validate.
+ *   items        array    required  Same format as /place-order items.
+ *
+ * Response data:
+ *   coupon_code           string   Normalised coupon code.
+ *   discount_type         string   'percent' | 'fixed_cart' | 'fixed_product'.
+ *   coupon_amount         float    Raw coupon value (% or $).
+ *   subtotal              float    Cart subtotal before discount.
+ *   discount_amount       float    Calculated discount in $.
+ *   total_after_discount  float    Subtotal minus discount (never negative).
+ */
+function clockwork_validate_coupon( $request ) {
+    // Authenticate
+    $user = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $user ) ) {
+        return clockwork_error_response( $user->get_error_message(), 401 );
+    }
+
+    $params = $request->get_json_params();
+    if ( empty( $params ) ) {
+        $params = $request->get_params();
+    }
+
+    // Validate inputs
+    $coupon_code = sanitize_text_field( $params['coupon_code'] ?? '' );
+    if ( empty( $coupon_code ) ) {
+        return clockwork_error_response( 'coupon_code is required', 400 );
+    }
+
+    $items = clockwork_validate_order_items( $params['items'] ?? [] );
+    if ( $items instanceof WP_REST_Response ) {
+        return $items;
+    }
+
+    // Load coupon
+    $coupon = new WC_Coupon( $coupon_code );
+    if ( ! $coupon->get_id() ) {
+        return clockwork_error_response( 'Invalid coupon code', 400 );
+    }
+
+    // Check expiry
+    $expiry = $coupon->get_date_expires();
+    if ( $expiry && $expiry->getTimestamp() < time() ) {
+        return clockwork_error_response( 'This coupon has expired', 400 );
+    }
+
+    // Check global usage limit
+    $usage_limit = $coupon->get_usage_limit();
+    if ( $usage_limit > 0 && $coupon->get_usage_count() >= $usage_limit ) {
+        return clockwork_error_response( 'This coupon has reached its usage limit', 400 );
+    }
+
+    // Check per-user usage limit
+    $usage_limit_per_user = $coupon->get_usage_limit_per_user();
+    if ( $usage_limit_per_user > 0 ) {
+        $data_store = WC_Data_Store::load( 'coupon' );
+        $used_by    = $data_store->get_usage_by_email( $coupon, $user->user_email );
+        if ( $used_by >= $usage_limit_per_user ) {
+            return clockwork_error_response( 'You have already used this coupon the maximum number of times', 400 );
+        }
+    }
+
+    // Calculate cart subtotal (base price + EPO options per item)
+    $subtotal          = 0.0;
+    $product_discounts = []; // used only for fixed_product type
+    $discount_type     = $coupon->get_discount_type();
+
+    foreach ( $items as $item ) {
+        $product        = $item['product'];
+        $quantity       = $item['quantity'];
+        $epo_unit_price = 0.0;
+
+        if ( ! empty( $item['epo_options'] ) ) {
+            $original_price = floatval( $product->get_price() );
+            foreach ( $item['epo_options'] as $option ) {
+                $opt_price  = floatval( $option['price'] ?? 0 );
+                $price_type = $option['price_type'] ?? 'fixed';
+                if ( 'percentage' === $price_type ) {
+                    $epo_unit_price += $original_price * ( $opt_price / 100 );
+                } else {
+                    $epo_unit_price += $opt_price;
+                }
+            }
+        }
+
+        $unit_price = floatval( $product->get_price() ) + $epo_unit_price;
+        $line_total = $unit_price * $quantity;
+        $subtotal  += $line_total;
+
+        // For fixed_product coupons, only discount eligible products
+        if ( 'fixed_product' === $discount_type ) {
+            $product_ids  = $coupon->get_product_ids();
+            $excluded_ids = $coupon->get_excluded_product_ids();
+            $eligible     = empty( $product_ids ) || in_array( $item['product_id'], $product_ids, true );
+            $not_excluded = empty( $excluded_ids ) || ! in_array( $item['product_id'], $excluded_ids, true );
+            if ( $eligible && $not_excluded ) {
+                $product_discounts[] = min( floatval( $coupon->get_amount() ), $unit_price ) * $quantity;
+            }
+        }
+    }
+
+    // Calculate discount amount
+    $discount_amount = 0.0;
+
+    switch ( $discount_type ) {
+        case 'percent':
+            $discount_amount = $subtotal * ( floatval( $coupon->get_amount() ) / 100 );
+            break;
+        case 'fixed_cart':
+            $discount_amount = min( floatval( $coupon->get_amount() ), $subtotal );
+            break;
+        case 'fixed_product':
+            $discount_amount = array_sum( $product_discounts );
+            break;
+        default:
+            $discount_amount = 0.0;
+    }
+
+    $discount_amount      = round( $discount_amount, 2 );
+    $total_after_discount = max( 0.0, round( $subtotal - $discount_amount, 2 ) );
+
+    return clockwork_success_response( 'Coupon applied successfully', [
+        'coupon_code'          => $coupon->get_code(),
+        'discount_type'        => $discount_type,
+        'coupon_amount'        => floatval( $coupon->get_amount() ),
+        'subtotal'             => round( $subtotal, 2 ),
+        'discount_amount'      => $discount_amount,
+        'total_after_discount' => $total_after_discount,
+    ], 200 );
+}
