@@ -733,13 +733,16 @@ function clockwork_format_user_data( $user, $include_memberships = true ) {
     ];
 
     // Add extended profile fields
-    $medical_specialities = get_user_meta( $user_id, 'medical_specialities', true );
+    $medical_specialties_raw = get_user_meta( $user_id, 'medical_specialties', true );
+    $medical_specialties_arr = $medical_specialties_raw
+        ? array_values( array_filter( array_map( 'trim', explode( ',', $medical_specialties_raw ) ) ) )
+        : [];
     $data['profile'] = [
         'hospital_institution' => get_user_meta( $user_id, 'hospital_institution', true ),
-        'category'             => get_user_meta( $user_id, 'category', true ),
+        'category'             => get_user_meta( $user_id, 'job_title', true ),
         'dietary_allergies'    => get_user_meta( $user_id, 'dietary_allergies', true ),
         'privacy_settings'     => get_user_meta( $user_id, 'privacy_settings', true ),
-        'medical_specialities' => is_array( $medical_specialities ) ? $medical_specialities : [],
+        'medical_specialities' => $medical_specialties_arr,
     ];
 
     if ( $include_memberships ) {
@@ -1983,16 +1986,21 @@ function clockwork_register_user_api( $request ) {
     $postcode             = sanitize_text_field( $params['postcode'] ?? '' );
     $country              = sanitize_text_field( $params['country'] ?? '' );
     $hospital_institution = sanitize_text_field( $params['hospital_institution'] ?? '' );
-    $category             = sanitize_text_field( $params['category'] ?? '' );
+    $job_title            = sanitize_text_field( $params['category'] ?? $params['job_title'] ?? '' );
     $dietary_allergies    = sanitize_textarea_field( $params['dietary_allergies'] ?? '' );
     $privacy_settings     = sanitize_text_field( $params['privacy_settings'] ?? '' );
 
-    // Medical specialities (multiple selection - array)
-    $medical_specialities_raw = $params['medical_specialities'] ?? [];
+    // Medical specialities (multiple selection - stored as comma-separated slugs to match web format)
+    $medical_specialities_raw = $params['medical_specialities'] ?? $params['medical_specialties'] ?? [];
     $medical_specialities = [];
     if ( is_array( $medical_specialities_raw ) ) {
         foreach ( $medical_specialities_raw as $speciality ) {
-            $medical_specialities[] = sanitize_text_field( $speciality );
+            $slug = strtolower( sanitize_text_field( $speciality ) );
+            $slug = str_replace( ' & ', '_', $slug );
+            $slug = str_replace( ' ', '_', $slug );
+            if ( $slug !== '' ) {
+                $medical_specialities[] = $slug;
+            }
         }
     }
 
@@ -2025,7 +2033,7 @@ function clockwork_register_user_api( $request ) {
         return clockwork_error_response( 'Hospital/Institution is required', 400 );
     }
 
-    if ( empty( $category ) ) {
+    if ( empty( $job_title ) ) {
         return clockwork_error_response( 'Category is required', 400 );
     }
 
@@ -2087,10 +2095,10 @@ function clockwork_register_user_api( $request ) {
 
     // Store extended profile fields (custom meta keys)
     update_user_meta( $user_id, 'hospital_institution', $hospital_institution );
-    update_user_meta( $user_id, 'category', $category );
+    update_user_meta( $user_id, 'job_title', $job_title );
     update_user_meta( $user_id, 'dietary_allergies', $dietary_allergies );
     update_user_meta( $user_id, 'privacy_settings', $privacy_settings );
-    update_user_meta( $user_id, 'medical_specialities', $medical_specialities );
+    update_user_meta( $user_id, 'medical_specialties', implode( ', ', $medical_specialities ) );
 
     // Set role based on registration type
     $user = new WP_User( $user_id );
@@ -2352,8 +2360,9 @@ function clockwork_update_profile_api( $request ) {
         if ( isset( $profile['hospital_institution'] ) ) {
             update_user_meta( $user->ID, 'hospital_institution', sanitize_text_field( $profile['hospital_institution'] ) );
         }
-        if ( isset( $profile['category'] ) ) {
-            update_user_meta( $user->ID, 'category', sanitize_text_field( $profile['category'] ) );
+        $job_title_val = $profile['category'] ?? $profile['job_title'] ?? null;
+        if ( isset( $job_title_val ) ) {
+            update_user_meta( $user->ID, 'job_title', sanitize_text_field( $job_title_val ) );
         }
         if ( isset( $profile['dietary_allergies'] ) ) {
             update_user_meta( $user->ID, 'dietary_allergies', sanitize_textarea_field( $profile['dietary_allergies'] ) );
@@ -2361,9 +2370,18 @@ function clockwork_update_profile_api( $request ) {
         if ( isset( $profile['privacy_settings'] ) ) {
             update_user_meta( $user->ID, 'privacy_settings', sanitize_text_field( $profile['privacy_settings'] ) );
         }
-        if ( isset( $profile['medical_specialities'] ) && is_array( $profile['medical_specialities'] ) ) {
-            $sanitized = array_map( 'sanitize_text_field', $profile['medical_specialities'] );
-            update_user_meta( $user->ID, 'medical_specialities', $sanitized );
+        $ms_input = $profile['medical_specialities'] ?? $profile['medical_specialties'] ?? null;
+        if ( isset( $ms_input ) && is_array( $ms_input ) ) {
+            $slugs = [];
+            foreach ( $ms_input as $speciality ) {
+                $slug = strtolower( sanitize_text_field( $speciality ) );
+                $slug = str_replace( ' & ', '_', $slug );
+                $slug = str_replace( ' ', '_', $slug );
+                if ( $slug !== '' ) {
+                    $slugs[] = $slug;
+                }
+            }
+            update_user_meta( $user->ID, 'medical_specialties', implode( ', ', $slugs ) );
         }
     }
 
@@ -2371,8 +2389,9 @@ function clockwork_update_profile_api( $request ) {
     if ( isset( $params['hospital_institution'] ) ) {
         update_user_meta( $user->ID, 'hospital_institution', sanitize_text_field( $params['hospital_institution'] ) );
     }
-    if ( isset( $params['category'] ) ) {
-        update_user_meta( $user->ID, 'category', sanitize_text_field( $params['category'] ) );
+    $job_title_direct = $params['category'] ?? $params['job_title'] ?? null;
+    if ( isset( $job_title_direct ) ) {
+        update_user_meta( $user->ID, 'job_title', sanitize_text_field( $job_title_direct ) );
     }
     if ( isset( $params['dietary_allergies'] ) ) {
         update_user_meta( $user->ID, 'dietary_allergies', sanitize_textarea_field( $params['dietary_allergies'] ) );
@@ -2380,9 +2399,18 @@ function clockwork_update_profile_api( $request ) {
     if ( isset( $params['privacy_settings'] ) ) {
         update_user_meta( $user->ID, 'privacy_settings', sanitize_text_field( $params['privacy_settings'] ) );
     }
-    if ( isset( $params['medical_specialities'] ) && is_array( $params['medical_specialities'] ) ) {
-        $sanitized = array_map( 'sanitize_text_field', $params['medical_specialities'] );
-        update_user_meta( $user->ID, 'medical_specialities', $sanitized );
+    $ms_direct = $params['medical_specialities'] ?? $params['medical_specialties'] ?? null;
+    if ( isset( $ms_direct ) && is_array( $ms_direct ) ) {
+        $slugs = [];
+        foreach ( $ms_direct as $speciality ) {
+            $slug = strtolower( sanitize_text_field( $speciality ) );
+            $slug = str_replace( ' & ', '_', $slug );
+            $slug = str_replace( ' ', '_', $slug );
+            if ( $slug !== '' ) {
+                $slugs[] = $slug;
+            }
+        }
+        update_user_meta( $user->ID, 'medical_specialties', implode( ', ', $slugs ) );
     }
 
     $updated_user = get_user_by( 'ID', $user->ID );
