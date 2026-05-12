@@ -6143,11 +6143,14 @@ function clockwork_validate_coupon( $request ) {
         }
     }
 
-    // Calculate cart subtotal (base price + EPO options per item)
-    $subtotal          = 0.0;
-    $product_discounts = []; // used only for fixed_product type
-    $discount_type     = $coupon->get_discount_type();
+    // Use a temporary WooCommerce order to compute the discount — this guarantees
+    // the result matches place-order exactly (same tax logic, same per-item rounding).
+    $temp_order = wc_create_order( [ 'customer_id' => $user->ID ] );
+    if ( is_wp_error( $temp_order ) ) {
+        return clockwork_error_response( 'Failed to calculate coupon discount', 500 );
+    }
 
+    // Add line items with EPO prices — mirrors place-order Step 5 exactly.
     foreach ( $items as $item ) {
         $product        = $item['product'];
         $quantity       = $item['quantity'];
@@ -6166,47 +6169,45 @@ function clockwork_validate_coupon( $request ) {
             }
         }
 
-        $unit_price = floatval( $product->get_price() ) + $epo_unit_price;
-        $line_total = $unit_price * $quantity;
-        $subtotal  += $line_total;
+        $unit_total = floatval( $product->get_price() ) + $epo_unit_price;
+        $line_total = $unit_total * $quantity;
 
-        // For fixed_product coupons, only discount eligible products
-        if ( 'fixed_product' === $discount_type ) {
-            $product_ids  = $coupon->get_product_ids();
-            $excluded_ids = $coupon->get_excluded_product_ids();
-            $eligible     = empty( $product_ids ) || in_array( $item['product_id'], $product_ids, true );
-            $not_excluded = empty( $excluded_ids ) || ! in_array( $item['product_id'], $excluded_ids, true );
-            if ( $eligible && $not_excluded ) {
-                $product_discounts[] = min( floatval( $coupon->get_amount() ), $unit_price ) * $quantity;
-            }
+        // Strip tax if store prices are tax-inclusive (same as place-order).
+        if ( wc_prices_include_tax() && $line_total > 0 ) {
+            $tax_rates  = WC_Tax::get_rates( $product->get_tax_class() );
+            $taxes      = WC_Tax::calc_tax( $line_total, $tax_rates, true );
+            $line_total = $line_total - array_sum( $taxes );
         }
+
+        $temp_order->add_product( $product, $quantity, [
+            'subtotal' => $line_total,
+            'total'    => $line_total,
+        ] );
     }
 
-    // Calculate discount amount
-    $discount_amount = 0.0;
-
-    switch ( $discount_type ) {
-        case 'percent':
-            $discount_amount = $subtotal * ( floatval( $coupon->get_amount() ) / 100 );
-            break;
-        case 'fixed_cart':
-            $discount_amount = min( floatval( $coupon->get_amount() ), $subtotal );
-            break;
-        case 'fixed_product':
-            $discount_amount = array_sum( $product_discounts );
-            break;
-        default:
-            $discount_amount = 0.0;
+    // Apply coupon via WooCommerce — same call as place-order Step 7.
+    $coupon_result = $temp_order->apply_coupon( $coupon_code );
+    if ( is_wp_error( $coupon_result ) ) {
+        $temp_order->delete( true );
+        return clockwork_error_response( 'Coupon cannot be applied: ' . $coupon_result->get_error_message(), 400 );
     }
 
-    $discount_amount      = round( $discount_amount, 2 );
-    $total_after_discount = max( 0.0, round( $subtotal - $discount_amount, 2 ) );
+    // Recalculate totals — same as place-order Step 8.
+    $temp_order->calculate_totals();
+
+    $subtotal             = round( floatval( $temp_order->get_subtotal() ), 2 );
+    $discount_amount      = round( floatval( $temp_order->get_discount_total() ), 2 );
+    $total_after_discount = round( floatval( $temp_order->get_total() ), 2 );
+    $discount_type        = $coupon->get_discount_type();
+
+    // Remove the temporary order from the database.
+    $temp_order->delete( true );
 
     return clockwork_success_response( 'Coupon applied successfully', [
         'coupon_code'          => $coupon->get_code(),
         'discount_type'        => $discount_type,
         'coupon_amount'        => floatval( $coupon->get_amount() ),
-        'subtotal'             => round( $subtotal, 2 ),
+        'subtotal'             => $subtotal,
         'discount_amount'      => $discount_amount,
         'total_after_discount' => $total_after_discount,
     ], 200 );
