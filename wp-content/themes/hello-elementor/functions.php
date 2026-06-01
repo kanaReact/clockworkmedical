@@ -569,6 +569,12 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/leads/add', [
+        'methods'             => 'POST',
+        'callback'            => 'clockwork_exhibitor_add_lead_manual',
+        'permission_callback' => '__return_true',
+    ]);
+
     register_rest_route( $namespace_v1, '/exhibitor/events/(?P<id>\d+)/note', [
         'methods'             => 'POST',
         'callback'            => 'clockwork_exhibitor_add_note',
@@ -3580,7 +3586,7 @@ function clockwork_store_fooevents_tickets( $order, $items, $billing, $user ) {
  */
 function clockwork_set_stripe_key() {
     if ( class_exists( 'WC_Stripe_API' ) ) {
-        WC_Stripe_API::set_secret_key( '2323232sk_test_51Sff4qLFpZ9avaqWgnUbuu76tY3xSXZdvdU6VQMcVpi0RCxLfNBk08z02eqTHoGlx5UihevmrSUaYMIrGVo2Im8V00VMCVeQ2H' );
+        WC_Stripe_API::set_secret_key( '434342342sk_test_51Sff4qLFpZ9avaqWgnUbuu76tY3xSXZdvdU6VQMcVpi0RCxLfNBk08z02eqTHoGlx5UihevmrSUaYMIrGVo2Im8V00VMCVeQ2H' );
     }
 }
 
@@ -5803,6 +5809,206 @@ function clockwork_exhibitor_scan_qr( $request ) {
 }
 
 /**
+ * POST /clockwork/v1/exhibitor/events/{id}/leads/add
+ *
+ * Manually adds a lead for the authenticated exhibitor at the given event.
+ * Unlike the QR scan endpoint, this does NOT require the attendee to have a
+ * confirmed registration — the record is always saved.
+ *
+ * Body (JSON):
+ *   {
+ *     "first_name" : "Jane",          // required
+ *     "last_name"  : "Doe",
+ *     "email"      : "jane@example.com", // required
+ *     "company"    : "Acme Corp",
+ *     "phone"      : "+1 555 000 0000",
+ *     "note"       : "Interested in booth 12"
+ *   }
+ *
+ * If a non-deleted record already exists for the same exhibitor + event + email,
+ * the existing row is updated (phone / company / note refreshed, timestamp bumped)
+ * instead of creating a duplicate.
+ */
+function clockwork_exhibitor_add_lead_manual( $request ) {
+    $exhibitor = clockwork_get_user_from_token( $request );
+    if ( is_wp_error( $exhibitor ) ) {
+        return clockwork_error_response( $exhibitor->get_error_message(), 401 );
+    }
+    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+        return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
+    }
+
+    $event_id = intval( $request->get_param( 'id' ) );
+    if ( ! wc_get_product( $event_id ) ) {
+        return clockwork_error_response( 'Event not found.', 404 );
+    }
+
+    $params = $request->get_json_params();
+
+    $first_name = sanitize_text_field( $params['first_name'] ?? '' );
+    $last_name  = sanitize_text_field( $params['last_name']  ?? '' );
+    $email      = sanitize_email( $params['email'] ?? '' );
+    $company    = sanitize_text_field( $params['company'] ?? '' );
+    $phone      = sanitize_text_field( $params['phone']   ?? '' );
+    $note       = sanitize_textarea_field( $params['note'] ?? '' );
+
+    if ( empty( $first_name ) ) {
+        return clockwork_error_response( 'first_name is required.', 400 );
+    }
+    if ( empty( $email ) || ! is_email( $email ) ) {
+        return clockwork_error_response( 'A valid email address is required.', 400 );
+    }
+
+    // Try to find a matching WP user by email
+    $attendee        = get_user_by( 'email', $email );
+    $attendee_user_id = $attendee ? $attendee->ID : null;
+
+    // Try to find a completed order for this event by this email/user
+    $order_found = null;
+    $search_args = [
+        'status'  => 'completed',
+        'limit'   => -1,
+        'return'  => 'ids',
+    ];
+    if ( $attendee ) {
+        $search_args['customer_id'] = $attendee->ID;
+    } else {
+        $search_args['billing_email'] = $email;
+    }
+
+    foreach ( wc_get_orders( $search_args ) as $order_id ) {
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) {
+            continue;
+        }
+        foreach ( $order->get_items() as $item ) {
+            if ( (int) $item->get_product_id() === $event_id ) {
+                $order_found = $order;
+                break 2;
+            }
+        }
+    }
+
+    // Enrich name/company from order billing if the attendee typed them blank
+    if ( $order_found ) {
+        if ( empty( $first_name ) ) {
+            $first_name = $order_found->get_billing_first_name();
+        }
+        if ( empty( $last_name ) ) {
+            $last_name = $order_found->get_billing_last_name();
+        }
+        if ( empty( $company ) ) {
+            $company = $order_found->get_billing_company();
+        }
+        if ( empty( $phone ) ) {
+            $phone = $order_found->get_billing_phone();
+        }
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'cw_exhibitor_scans';
+    $now   = current_time( 'Y-m-d H:i:s' );
+
+    // Duplicate check: same exhibitor + event + email (not deleted)
+    $existing = $wpdb->get_row( $wpdb->prepare(
+        "SELECT id FROM {$table}
+         WHERE event_id = %d AND exhibitor_id = %d AND attendee_email = %s AND is_deleted = 0
+         LIMIT 1",
+        $event_id, $exhibitor->ID, $email
+    ) );
+
+    if ( $existing ) {
+        // Update existing record
+        $update_data   = [
+            'attendee_first_name' => $first_name,
+            'attendee_last_name'  => $last_name,
+            'attendee_company'    => $company,
+            'updated_at'          => $now,
+        ];
+        $update_format = [ '%s', '%s', '%s', '%s' ];
+
+        if ( ! empty( $note ) ) {
+            $update_data['note']   = $note;
+            $update_format[]       = '%s';
+        }
+        if ( $attendee_user_id ) {
+            $update_data['attendee_user_id'] = $attendee_user_id;
+            $update_format[]                 = '%d';
+        }
+        if ( $order_found ) {
+            $update_data['order_id'] = $order_found->get_id();
+            $update_format[]         = '%d';
+        }
+
+        $wpdb->update( $table, $update_data, [ 'id' => (int) $existing->id ], $update_format, [ '%d' ] );
+        $scan_id    = (int) $existing->id;
+        $is_new     = false;
+    } else {
+        // Insert new lead record
+        $wpdb->insert(
+            $table,
+            [
+                'event_id'            => $event_id,
+                'exhibitor_id'        => $exhibitor->ID,
+                'attendee_user_id'    => $attendee_user_id,
+                'attendee_email'      => $email,
+                'attendee_first_name' => $first_name,
+                'attendee_last_name'  => $last_name,
+                'attendee_company'    => $company,
+                'order_id'            => $order_found ? $order_found->get_id() : null,
+                'note'                => $note ?: null,
+                'is_deleted'          => 0,
+                'scanned_at'          => $now,
+                'updated_at'          => $now,
+            ],
+            [ '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%d', '%s', '%s' ]
+        );
+        $scan_id = (int) $wpdb->insert_id;
+        $is_new  = true;
+    }
+
+    // Build response attendee profile
+    $attendee_profile = [
+        'user_id'    => $attendee_user_id,
+        'first_name' => $first_name,
+        'last_name'  => $last_name,
+        'email'      => $email,
+        'company'    => $company,
+        'phone'      => $phone ?: null,
+    ];
+    if ( $attendee ) {
+        $attendee_profile['job_title']            = get_user_meta( $attendee->ID, 'job_title', true ) ?: null;
+        $attendee_profile['hospital_institution'] = get_user_meta( $attendee->ID, 'hospital_institution', true ) ?: null;
+        $attendee_profile['medical_specialties']  = get_user_meta( $attendee->ID, 'medical_specialties', true ) ?: null;
+    }
+
+    $order_summary = null;
+    if ( $order_found ) {
+        $order_summary = [
+            'order_id'     => $order_found->get_id(),
+            'order_number' => $order_found->get_order_number(),
+            'status'       => $order_found->get_status(),
+            'total'        => $order_found->get_total(),
+            'currency'     => $order_found->get_currency(),
+            'date_created' => $order_found->get_date_created()
+                ? $order_found->get_date_created()->format( 'Y-m-d H:i:s' )
+                : null,
+        ];
+    }
+
+    $message = $is_new ? 'Lead added successfully.' : 'Lead already exists; record updated.';
+
+    return clockwork_success_response( $message, [
+        'scan_id'                => $scan_id,
+        'is_new'                 => $is_new,
+        'has_valid_registration' => ! is_null( $order_found ),
+        'attendee'               => $attendee_profile,
+        'order'                  => $order_summary,
+        'note'                   => $note ?: null,
+    ] );
+}
+
+/**
  * POST /clockwork/v1/exhibitor/events/{id}/note
  *
  * Adds a note about an attendee at a specific event.
@@ -5933,19 +6139,12 @@ function clockwork_exhibitor_export_scans( $request ) {
     // Column headers (row 7)
     $header_row = 7;
     $headers    = [
-        'A' => 'Scan ID',
-        'B' => 'First Name',
-        'C' => 'Last Name',
-        'D' => 'Email',
-        'E' => 'Company',
-        'F' => 'Job Title',
-        'G' => 'Hospital / Institution',
-        'H' => 'Medical Specialties',
-        'I' => 'Phone',
-        'J' => 'Order ID',
-        'K' => 'Order Status',
-        'L' => 'Note',
-        'M' => 'Scanned At',
+        'A' => 'First Name',
+        'B' => 'Last Name',
+        'C' => 'Email',
+        'D' => 'Notes',
+        'E' => 'Date Scanned',
+        'F' => 'Hospital / Institution',
     ];
 
     foreach ( $headers as $col => $label ) {
@@ -5960,34 +6159,18 @@ function clockwork_exhibitor_export_scans( $request ) {
     // Data rows
     $data_row = $header_row + 1;
     foreach ( $rows as $row ) {
-        $uid         = ! empty( $row['attendee_user_id'] ) ? (int) $row['attendee_user_id'] : null;
-        $job_title   = $uid ? ( get_user_meta( $uid, 'job_title', true ) ?: '' ) : '';
-        $hospital    = $uid ? ( get_user_meta( $uid, 'hospital_institution', true ) ?: '' ) : '';
-        $specialties = $uid ? ( get_user_meta( $uid, 'medical_specialties', true ) ?: '' ) : '';
-        $phone       = $uid ? ( get_user_meta( $uid, 'billing_phone', true ) ?: '' ) : '';
+        $uid      = ! empty( $row['attendee_user_id'] ) ? (int) $row['attendee_user_id'] : null;
+        $hospital = $uid ? ( get_user_meta( $uid, 'hospital_institution', true ) ?: '' ) : '';
 
-        $order_status = '';
-        if ( ! empty( $row['order_id'] ) ) {
-            $order        = wc_get_order( (int) $row['order_id'] );
-            $order_status = $order ? wc_get_order_status_name( $order->get_status() ) : '';
-        }
-
-        $sheet->setCellValue( "A{$data_row}", (int) $row['id'] );
-        $sheet->setCellValue( "B{$data_row}", $row['attendee_first_name'] );
-        $sheet->setCellValue( "C{$data_row}", $row['attendee_last_name'] );
-        $sheet->setCellValue( "D{$data_row}", $row['attendee_email'] );
-        $sheet->setCellValue( "E{$data_row}", $row['attendee_company'] );
-        $sheet->setCellValue( "F{$data_row}", $job_title );
-        $sheet->setCellValue( "G{$data_row}", $hospital );
-        $sheet->setCellValue( "H{$data_row}", $specialties );
-        $sheet->setCellValue( "I{$data_row}", $phone );
-        $sheet->setCellValue( "J{$data_row}", $row['order_id'] ? (int) $row['order_id'] : '' );
-        $sheet->setCellValue( "K{$data_row}", $order_status );
-        $sheet->setCellValue( "L{$data_row}", $row['note'] ?? '' );
-        $sheet->setCellValue( "M{$data_row}", $row['scanned_at'] );
+        $sheet->setCellValue( "A{$data_row}", $row['attendee_first_name'] );
+        $sheet->setCellValue( "B{$data_row}", $row['attendee_last_name'] );
+        $sheet->setCellValue( "C{$data_row}", $row['attendee_email'] );
+        $sheet->setCellValue( "D{$data_row}", $row['note'] ?? '' );
+        $sheet->setCellValue( "E{$data_row}", $row['scanned_at'] );
+        $sheet->setCellValue( "F{$data_row}", $hospital );
 
         if ( $data_row % 2 === 0 ) {
-            $sheet->getStyle( "A{$data_row}:M{$data_row}" )->getFill()
+            $sheet->getStyle( "A{$data_row}:F{$data_row}" )->getFill()
                   ->setFillType( \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID )
                   ->getStartColor()->setRGB( 'EBF3FB' );
         }
