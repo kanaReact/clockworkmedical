@@ -365,6 +365,18 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+    register_rest_route( $namespace_v1, '/phone-country-codes', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_phone_country_codes_api',
+        'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route( $namespace_v1, '/badge-qr-consent-options', [
+        'methods'             => 'GET',
+        'callback'            => 'clockwork_get_badge_qr_consent_options_api',
+        'permission_callback' => '__return_true',
+    ]);
+
     // Profile Endpoints
     register_rest_route( $namespace_v1, '/profile', [
         [
@@ -736,7 +748,8 @@ function clockwork_format_user_data( $user, $include_memberships = true ) {
 
     // Add billing/address information
     $data['billing'] = [
-        'phone'      => get_user_meta( $user_id, 'billing_phone', true ),
+        'phone'              => get_user_meta( $user_id, 'billing_phone', true ),
+        'phone_country_code' => get_user_meta( $user_id, 'billing_phone_country_code', true ),
         'address_1'  => get_user_meta( $user_id, 'billing_address_1', true ),
         'address_2'  => get_user_meta( $user_id, 'billing_address_2', true ),
         'city'       => get_user_meta( $user_id, 'billing_city', true ),
@@ -755,6 +768,7 @@ function clockwork_format_user_data( $user, $include_memberships = true ) {
         'category'             => get_user_meta( $user_id, 'job_title', true ),
         'dietary_allergies'    => get_user_meta( $user_id, 'dietary_allergies', true ),
         'privacy_settings'     => get_user_meta( $user_id, 'privacy_settings', true ),
+        'badge_qr_consent'     => get_user_meta( $user_id, 'badge_qr_consent', true ),
         'medical_specialities' => $medical_specialties_arr,
     ];
 
@@ -1979,6 +1993,74 @@ function clockwork_parse_sponsors_from_html( $html_content ) {
  * POST /clockwork/v1/register
  * Register new user
  */
+/**
+ * Returns the phone country code list (fallback if cw_get_phone_country_code_options is unavailable).
+ */
+function clockwork_get_phone_country_codes_list() {
+    return [
+        '+44', '+353', '+33', '+49', '+39', '+34', '+31', '+32', '+41', '+43',
+        '+45', '+46', '+47', '+358', '+351', '+30', '+48', '+420', '+36',
+        '+1', '+61', '+64', '+27', '+91', '+92', '+971', '+966', '+974',
+        '+965', '+973', '+968', '+65', '+60', '+852', '+81', '+82', '+86',
+    ];
+}
+
+/**
+ * GET /clockwork/v1/phone-country-codes
+ * Returns the list of phone country codes for the registration dropdown.
+ */
+function clockwork_get_phone_country_codes_api( $request ) {
+    if ( function_exists( 'cw_get_phone_country_code_options' ) ) {
+        $raw = cw_get_phone_country_code_options();
+    } else {
+        $raw = array_combine(
+            clockwork_get_phone_country_codes_list(),
+            clockwork_get_phone_country_codes_list()
+        );
+    }
+
+    $codes = [];
+    foreach ( $raw as $code => $label ) {
+        if ( $code === '' ) {
+            continue;
+        }
+        $codes[] = [
+            'code'  => $code,
+            'label' => $label,
+        ];
+    }
+
+    return clockwork_success_response( 'Phone country codes retrieved', [ 'codes' => $codes ] );
+}
+
+/**
+ * GET /clockwork/v1/badge-qr-consent-options
+ * Returns the badge QR consent options for the registration dropdown.
+ */
+function clockwork_get_badge_qr_consent_options_api( $request ) {
+    if ( function_exists( 'cw_get_badge_qr_consent_options' ) ) {
+        $raw = cw_get_badge_qr_consent_options();
+    } else {
+        $raw = [
+            'qr_yes' => 'I am happy for contact details to be contained in a QR code',
+            'qr_no'  => "Please don't print the QR code on my badge",
+        ];
+    }
+
+    $options = [];
+    foreach ( $raw as $value => $label ) {
+        if ( $value === '' ) {
+            continue;
+        }
+        $options[] = [
+            'value' => $value,
+            'label' => $label,
+        ];
+    }
+
+    return clockwork_success_response( 'Badge QR consent options retrieved', [ 'options' => $options ] );
+}
+
 function clockwork_register_user_api( $request ) {
     $params = $request->get_json_params();
 
@@ -1992,6 +2074,7 @@ function clockwork_register_user_api( $request ) {
 
     // Extended profile fields
     $phone                = sanitize_text_field( $params['phone'] ?? '' );
+    $phone_country_code   = sanitize_text_field( $params['phone_country_code'] ?? '' );
     $address_1            = sanitize_text_field( $params['address_1'] ?? '' );
     $address_2            = sanitize_text_field( $params['address_2'] ?? '' );
     $city                 = sanitize_text_field( $params['city'] ?? '' );
@@ -2002,6 +2085,7 @@ function clockwork_register_user_api( $request ) {
     $job_title            = sanitize_text_field( $params['category'] ?? $params['job_title'] ?? '' );
     $dietary_allergies    = sanitize_textarea_field( $params['dietary_allergies'] ?? '' );
     $privacy_settings     = sanitize_text_field( $params['privacy_settings'] ?? '' );
+    $badge_qr_consent     = sanitize_text_field( $params['badge_qr_consent'] ?? '' );
 
     // Medical specialities (multiple selection - stored as comma-separated slugs to match web format)
     $medical_specialities_raw = $params['medical_specialities'] ?? $params['medical_specialties'] ?? [];
@@ -2063,6 +2147,21 @@ function clockwork_register_user_api( $request ) {
         return clockwork_error_response( 'Invalid type. Allowed values: customer, exhibitor', 400 );
     }
 
+    if ( ! empty( $phone_country_code ) ) {
+        $valid_codes = function_exists( 'cw_get_phone_country_code_options' )
+            ? array_keys( cw_get_phone_country_code_options() )
+            : clockwork_get_phone_country_codes_list();
+        // Remove empty key (placeholder) from valid codes
+        $valid_codes = array_filter( $valid_codes );
+        if ( ! in_array( $phone_country_code, array_values( $valid_codes ), true ) ) {
+            return clockwork_error_response( 'Invalid phone country code', 400 );
+        }
+    }
+
+    if ( ! empty( $badge_qr_consent ) && ! in_array( $badge_qr_consent, [ 'qr_yes', 'qr_no' ], true ) ) {
+        return clockwork_error_response( 'Invalid badge_qr_consent value. Allowed: qr_yes, qr_no', 400 );
+    }
+
     if ( email_exists( $email ) ) {
         return clockwork_error_response( 'Email already registered', 409 );
     }
@@ -2096,6 +2195,7 @@ function clockwork_register_user_api( $request ) {
 
     // Store billing/address fields (WooCommerce standard meta keys)
     update_user_meta( $user_id, 'billing_phone', $phone );
+    update_user_meta( $user_id, 'billing_phone_country_code', $phone_country_code );
     update_user_meta( $user_id, 'billing_address_1', $address_1 );
     update_user_meta( $user_id, 'billing_address_2', $address_2 );
     update_user_meta( $user_id, 'billing_city', $city );
@@ -2111,6 +2211,7 @@ function clockwork_register_user_api( $request ) {
     update_user_meta( $user_id, 'job_title', $job_title );
     update_user_meta( $user_id, 'dietary_allergies', $dietary_allergies );
     update_user_meta( $user_id, 'privacy_settings', $privacy_settings );
+    update_user_meta( $user_id, 'badge_qr_consent', $badge_qr_consent );
     update_user_meta( $user_id, 'medical_specialties', implode( ', ', $medical_specialities ) );
 
     // Set role based on registration type
@@ -3779,6 +3880,16 @@ function clockwork_place_order( $request ) {
     ];
     $order->set_address( $billing_data, 'billing' );
     clockwork_update_user_billing( $user->ID, $billing_data );
+
+    // Store new profile fields: phone_country_code and badge_qr_consent
+    $phone_country_code = sanitize_text_field( $billing['phone_country_code'] ?? '' );
+    $badge_qr_consent   = sanitize_text_field( $params['badge_qr_consent'] ?? '' );
+    if ( ! empty( $phone_country_code ) ) {
+        update_user_meta( $user->ID, 'billing_phone_country_code', $phone_country_code );
+    }
+    if ( ! empty( $badge_qr_consent ) ) {
+        update_user_meta( $user->ID, 'badge_qr_consent', $badge_qr_consent );
+    }
 
     // Step 7: Apply coupon
     if ( ! empty( $coupon_code ) ) {
