@@ -2546,10 +2546,12 @@ function clockwork_get_meetings_list( $request ) {
     $page = max( 1, intval( $request->get_param( 'page' ) ) );
     $per_page = 10;
 
+    $now = time();
+
+    // Fetch all meetings, filter out ones that have already finished, then paginate manually.
     $args = [
         'post_type'      => 'product',
-        'posts_per_page' => $per_page,
-        'paged'          => $page,
+        'posts_per_page' => -1,
         'tax_query'      => [[
             'taxonomy' => 'product_cat',
             'field'    => 'slug',
@@ -2558,7 +2560,7 @@ function clockwork_get_meetings_list( $request ) {
     ];
 
     $query = new WP_Query( $args );
-    $meetings = [];
+    $all_meetings = [];
 
     if ( $query->have_posts() ) {
         while ( $query->have_posts() ) {
@@ -2570,6 +2572,18 @@ function clockwork_get_meetings_list( $request ) {
             }
 
             $post_id = get_the_ID();
+
+            // Skip meetings that have already finished (end date, or start date if no end date, is in the past).
+            $end_ts = get_post_meta( $post_id, 'WooCommerceEventsEndDateTimestamp', true );
+            $start_ts = get_post_meta( $post_id, 'WooCommerceEventsDateTimestamp', true );
+
+            if ( $end_ts !== '' ) {
+                if ( intval( $end_ts ) < $now ) {
+                    continue;
+                }
+            } elseif ( $start_ts !== '' && intval( $start_ts ) < $now ) {
+                continue;
+            }
 
             // Build start time string
             $start_hour = get_post_meta( $post_id, 'WooCommerceEventsHour', true );
@@ -2589,7 +2603,7 @@ function clockwork_get_meetings_list( $request ) {
                 $end_time = $end_hour . ':' . $end_minutes . ( $end_period ? ' ' . $end_period : '' );
             }
 
-            $meetings[] = [
+            $all_meetings[] = [
                 'id'             => $post_id,
                 'name'           => get_the_title(),
                 'date'           => get_post_meta( $post_id, 'WooCommerceEventsDate', true ) ?: null,
@@ -2613,13 +2627,17 @@ function clockwork_get_meetings_list( $request ) {
         wp_reset_postdata();
     }
 
+    $total_items = count( $all_meetings );
+    $total_pages = $per_page > 0 ? (int) ceil( $total_items / $per_page ) : 1;
+    $meetings    = array_slice( $all_meetings, ( $page - 1 ) * $per_page, $per_page );
+
     return rest_ensure_response([
         'success'      => true,
         'message'      => 'Clockwork Medical Meetings',
         'current_page' => $page,
         'per_page'     => $per_page,
-        'total_items'  => $query->found_posts,
-        'total_pages'  => $query->max_num_pages,
+        'total_items'  => $total_items,
+        'total_pages'  => $total_pages,
         'data'         => $meetings,
     ]);
 }
@@ -3808,8 +3826,10 @@ function clockwork_place_order( $request ) {
     // Step 4: Create WooCommerce order
     $order = wc_create_order( [ 'customer_id' => $user->ID ] );
     if ( is_wp_error( $order ) ) {
+        $cw_log( 'RETURN 500 wc_create_order failed', $order->get_error_message() );
         return clockwork_error_response( 'Failed to create order: ' . $order->get_error_message(), 500 );
     }
+    $cw_log( 'Order created', [ 'order_id' => $order->get_id() ] );
 
     // Step 5: Add line items with EPO prices included in line total
     foreach ( $items as &$item ) {
@@ -3852,6 +3872,7 @@ function clockwork_place_order( $request ) {
         if ( ! $item_id ) {
             $order->set_status( 'cancelled' );
             $order->save();
+            $cw_log( 'RETURN 500 add_product failed', [ 'product_id' => $item['product_id'] ] );
             return clockwork_error_response( 'Failed to add product to order (ID: ' . $item['product_id'] . ')', 500 );
         }
 
@@ -3897,6 +3918,7 @@ function clockwork_place_order( $request ) {
         if ( is_wp_error( $coupon_result ) ) {
             $order->set_status( 'cancelled' );
             $order->save();
+            $cw_log( 'RETURN 400 coupon invalid', [ 'coupon' => $coupon_code, 'error' => $coupon_result->get_error_message() ] );
             return clockwork_error_response( 'Invalid coupon: ' . $coupon_result->get_error_message(), 400 );
         }
     }
@@ -3945,22 +3967,27 @@ function clockwork_place_order( $request ) {
             $order->save();
         }
 
-        return clockwork_success_response( 'Order placed successfully.', [
-            'order_id'        => $order->get_id(),
-            'order_status'    => 'completed',
-            'order_total'     => $order->get_total(),
-            'currency'        => $order->get_currency(),
+        $free_response = [
+            'order_id'         => $order->get_id(),
+            'order_status'     => 'completed',
+            'order_total'      => $order->get_total(),
+            'currency'         => $order->get_currency(),
             'requires_payment' => false,
-        ] );
+        ];
+        $cw_log( 'RETURN 200 free order', $free_response );
+        return clockwork_success_response( 'Order placed successfully.', $free_response );
     }
 
     // Create Stripe PaymentIntent (not confirmed — app will confirm via Stripe SDK)
+    $cw_log( 'Creating Stripe PaymentIntent', [ 'order_id' => $order->get_id(), 'total' => $order_total ] );
     $payment_result = clockwork_create_stripe_payment_intent( $order );
+    $cw_log( 'Stripe PaymentIntent result', array_diff_key( $payment_result, [ 'client_secret' => 1 ] ) );
 
     if ( 'error' === $payment_result['status'] ) {
         $order->set_status( 'failed' );
         $order->add_order_note( 'PaymentIntent creation failed: ' . $payment_result['message'] );
         $order->save();
+        $cw_log( 'RETURN 402 Stripe error', $payment_result['message'] );
         return clockwork_error_response( $payment_result['message'], 402 );
     }
 
@@ -3969,7 +3996,7 @@ function clockwork_place_order( $request ) {
     $order->add_order_note( 'Awaiting payment via Stripe PaymentSheet. Intent: ' . $payment_result['intent_id'] );
     $order->save();
 
-    return clockwork_success_response( 'Order created. Complete payment using the client_secret.', [
+    $paid_response = [
         'order_id'                     => $order->get_id(),
         'order_status'                 => 'pending',
         'order_total'                  => $order->get_total(),
@@ -3977,7 +4004,9 @@ function clockwork_place_order( $request ) {
         'requires_payment'             => true,
         'payment_intent_id'            => $payment_result['intent_id'],
         'payment_intent_client_secret' => $payment_result['client_secret'],
-    ] );
+    ];
+    $cw_log( 'RETURN 200 pending payment', array_diff_key( $paid_response, [ 'payment_intent_client_secret' => 1 ] ) );
+    return clockwork_success_response( 'Order created. Complete payment using the client_secret.', $paid_response );
 }
 
 /**
