@@ -1543,12 +1543,11 @@ function clockwork_extract_tabs_recursive( $elements, &$tabs ) {
 
                     if ( ! empty( $tab_title ) ) {
                         $tabs[] = [
-                            'id'           => $tab_id,
-                            'title'        => $tab_title,
-                            'summary'      => $summary_text,
-                            'content'      => $tab_content,
-                            'order'        => $index + 1,
-                            'raw_elements' => $tab_container['elements'] ?? [],
+                            'id'       => $tab_id,
+                            'title'    => $tab_title,
+                            'summary'  => $summary_text,
+                            'content'  => $tab_content,
+                            'order'    => $index + 1,
                         ];
                     }
                 }
@@ -1804,6 +1803,18 @@ function clockwork_is_element_hidden_everywhere( $element ) {
         return false;
     }
 
+    // Third-party "Stax" visibility-by-role control (not in this codebase - installed
+    // directly on the live site). Confirmed against the live rendered page: when this
+    // is enabled on an element but no roles have actually been picked, the element
+    // renders for nobody (not even guests), rather than for everyone as "no
+    // restriction configured" might suggest. Only treat that exact, verified state as
+    // hidden - a populated role list is left alone since we can't verify its meaning.
+    if ( isset( $settings['stax_visibility_condition_type'] )
+        && array_key_exists( 'stax_visibility_user_role_conditions', $settings )
+        && empty( $settings['stax_visibility_user_role_conditions'] ) ) {
+        return true;
+    }
+
     if ( class_exists( '\Elementor\Plugin' ) && isset( \Elementor\Plugin::$instance->breakpoints ) ) {
         $breakpoint_keys = \Elementor\Plugin::$instance->breakpoints->get_active_devices_list();
     } else {
@@ -1821,54 +1832,6 @@ function clockwork_is_element_hidden_everywhere( $element ) {
     }
 
     return true;
-}
-
-/**
- * Temporary debug helper: recursively dump an Elementor element tree's type,
- * visibility-related settings, and title/text, so a hidden/leftover element can
- * be located without direct DB access. Remove once no longer needed.
- *
- * @param array $elements Elementor elements
- * @param int   $depth Current recursion depth (internal)
- * @return array
- */
-function clockwork_debug_dump_elements( $elements, $depth = 0 ) {
-    $out = [];
-
-    if ( ! is_array( $elements ) || $depth > 8 ) {
-        return $out;
-    }
-
-    foreach ( $elements as $element ) {
-        if ( ! is_array( $element ) ) {
-            continue;
-        }
-
-        $settings = $element['settings'] ?? [];
-        $visibility_settings = [];
-        foreach ( $settings as $key => $value ) {
-            if ( strpos( $key, 'hide_' ) === 0 || strpos( $key, 'condition' ) !== false || strpos( $key, '_display' ) !== false ) {
-                $visibility_settings[ $key ] = $value;
-            }
-        }
-
-        $node = [
-            'elType'               => $element['elType'] ?? null,
-            'widgetType'           => $element['widgetType'] ?? null,
-            'title'                => $settings['title'] ?? null,
-            'image_url'            => $settings['image']['url'] ?? null,
-            'visibility_settings'  => $visibility_settings,
-            'is_hidden_everywhere' => clockwork_is_element_hidden_everywhere( $element ),
-        ];
-
-        if ( isset( $element['elements'] ) && is_array( $element['elements'] ) && ! empty( $element['elements'] ) ) {
-            $node['children'] = clockwork_debug_dump_elements( $element['elements'], $depth + 1 );
-        }
-
-        $out[] = $node;
-    }
-
-    return $out;
 }
 
 /**
@@ -1934,6 +1897,42 @@ function clockwork_extract_content_from_elements( $elements ) {
                     'type' => 'button',
                     'text' => $btn_text,
                     'url'  => $btn_url,
+                ];
+            }
+        }
+
+        // Google Maps widget - the venue map shown on the site is built from a plain
+        // address + zoom level (Elementor\Widgets\Google_Maps::render()), not from any
+        // WooCommerceEvents GPS meta, so it has to be parsed from the widget itself.
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'google_maps' ) {
+            $address = trim( wp_strip_all_tags( $element['settings']['address'] ?? '' ) );
+            if ( ! empty( $address ) ) {
+                $zoom = intval( $element['settings']['zoom']['size'] ?? 10 );
+                if ( $zoom <= 0 ) {
+                    $zoom = 10;
+                }
+
+                $api_key = get_option( 'elementor_google_maps_api_key' );
+                if ( $api_key ) {
+                    $embed_url = sprintf(
+                        'https://www.google.com/maps/embed/v1/place?key=%s&q=%s&zoom=%d',
+                        rawurlencode( $api_key ),
+                        rawurlencode( $address ),
+                        $zoom
+                    );
+                } else {
+                    $embed_url = sprintf(
+                        'https://maps.google.com/maps?q=%s&t=m&z=%d&output=embed&iwloc=near',
+                        rawurlencode( $address ),
+                        $zoom
+                    );
+                }
+
+                $content_parts[] = [
+                    'type'      => 'map',
+                    'address'   => $address,
+                    'zoom'      => $zoom,
+                    'embed_url' => $embed_url,
                 ];
             }
         }
@@ -3413,6 +3412,7 @@ function clockwork_get_meeting_venue( $request ) {
 
     // Filter out transport-related items from tab_content
     $filtered_content = [];
+    $map_embed_url = null;
     foreach ( $tab_content as $item ) {
         if ( ( $item['type'] ?? '' ) === 'text' && ! empty( $item['text'] ) ) {
             $text = $item['text'];
@@ -3424,7 +3424,16 @@ function clockwork_get_meeting_venue( $request ) {
                 continue;
             }
         }
+        if ( ( $item['type'] ?? '' ) === 'map' && empty( $map_embed_url ) ) {
+            $map_embed_url = $item['embed_url'] ?? null;
+        }
         $filtered_content[] = $item;
+    }
+
+    // The site's venue map is an Elementor Google Maps widget (address + zoom), not
+    // WooCommerceEventsGoogleMaps meta, which is rarely populated. Fall back to it.
+    if ( empty( $google_maps ) && ! empty( $map_embed_url ) ) {
+        $google_maps = $map_embed_url;
     }
 
     $venue = [
@@ -3462,41 +3471,6 @@ function clockwork_get_meeting_sponsors( $request ) {
     }
 
     $sponsor_data = clockwork_get_meeting_sponsor_tiers( $id );
-
-    // Temporary diagnostic (remove once sponsor sourcing is confirmed correct):
-    // lists every Elementor tab found on the page and the raw content of
-    // whichever one got matched as "Sponsors", so a mismatch is visible without DB access.
-    if ( $request->get_param( 'debug' ) ) {
-        $elementor_tabs = clockwork_parse_elementor_tabs( $id );
-        $matched_tab = null;
-        foreach ( $elementor_tabs as $tab ) {
-            $tab_id = strtolower( $tab['id'] ?? '' );
-            $tab_title = strtolower( $tab['title'] ?? '' );
-            if ( $tab_id === 'sponsors' || strpos( $tab_title, 'sponsor' ) !== false ) {
-                $matched_tab = $tab;
-                break;
-            }
-        }
-
-        return rest_ensure_response([
-            'success' => true,
-            'message' => 'Meeting Sponsors (debug)',
-            'data'    => [
-                'id'               => $id,
-                'sponsors'         => $sponsor_data,
-                'debug_all_tabs'   => array_map( function( $t ) {
-                    return [
-                        'id'            => $t['id'] ?? '',
-                        'title'         => $t['title'] ?? '',
-                        'content_count' => is_array( $t['content'] ?? null ) ? count( $t['content'] ) : 0,
-                    ];
-                }, $elementor_tabs ),
-                'debug_matched_tab_id' => $matched_tab['id'] ?? null,
-                'debug_matched_tab_content' => $matched_tab['content'] ?? [],
-                'debug_raw_elements' => clockwork_debug_dump_elements( $matched_tab['raw_elements'] ?? [] ),
-            ],
-        ]);
-    }
 
     return rest_ensure_response([
         'success' => true,
