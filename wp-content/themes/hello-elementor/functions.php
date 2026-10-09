@@ -1543,11 +1543,12 @@ function clockwork_extract_tabs_recursive( $elements, &$tabs ) {
 
                     if ( ! empty( $tab_title ) ) {
                         $tabs[] = [
-                            'id'       => $tab_id,
-                            'title'    => $tab_title,
-                            'summary'  => $summary_text,
-                            'content'  => $tab_content,
-                            'order'    => $index + 1,
+                            'id'           => $tab_id,
+                            'title'        => $tab_title,
+                            'summary'      => $summary_text,
+                            'content'      => $tab_content,
+                            'order'        => $index + 1,
+                            'raw_elements' => $tab_container['elements'] ?? [],
                         ];
                     }
                 }
@@ -1787,6 +1788,90 @@ function clockwork_html_blocks_to_content_parts( $html ) {
 }
 
 /**
+ * Check whether an Elementor element is hidden on every active device breakpoint
+ * via its "Hide On X" responsive visibility controls (Advanced > Responsive).
+ * This is how editors commonly "soft delete" leftover content (e.g. an old
+ * sponsor tier) without removing it from the page, so it must be treated the
+ * same as deleted content when building API responses.
+ *
+ * @param array $element Elementor element
+ * @return bool
+ */
+function clockwork_is_element_hidden_everywhere( $element ) {
+    $settings = $element['settings'] ?? [];
+
+    if ( empty( $settings ) ) {
+        return false;
+    }
+
+    if ( class_exists( '\Elementor\Plugin' ) && isset( \Elementor\Plugin::$instance->breakpoints ) ) {
+        $breakpoint_keys = \Elementor\Plugin::$instance->breakpoints->get_active_devices_list();
+    } else {
+        $breakpoint_keys = [ 'desktop', 'tablet', 'mobile' ];
+    }
+
+    if ( empty( $breakpoint_keys ) ) {
+        return false;
+    }
+
+    foreach ( $breakpoint_keys as $breakpoint_key ) {
+        if ( empty( $settings[ 'hide_' . $breakpoint_key ] ) ) {
+            return false; // Visible on at least one device.
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Temporary debug helper: recursively dump an Elementor element tree's type,
+ * visibility-related settings, and title/text, so a hidden/leftover element can
+ * be located without direct DB access. Remove once no longer needed.
+ *
+ * @param array $elements Elementor elements
+ * @param int   $depth Current recursion depth (internal)
+ * @return array
+ */
+function clockwork_debug_dump_elements( $elements, $depth = 0 ) {
+    $out = [];
+
+    if ( ! is_array( $elements ) || $depth > 8 ) {
+        return $out;
+    }
+
+    foreach ( $elements as $element ) {
+        if ( ! is_array( $element ) ) {
+            continue;
+        }
+
+        $settings = $element['settings'] ?? [];
+        $visibility_settings = [];
+        foreach ( $settings as $key => $value ) {
+            if ( strpos( $key, 'hide_' ) === 0 || strpos( $key, 'condition' ) !== false || strpos( $key, '_display' ) !== false ) {
+                $visibility_settings[ $key ] = $value;
+            }
+        }
+
+        $node = [
+            'elType'               => $element['elType'] ?? null,
+            'widgetType'           => $element['widgetType'] ?? null,
+            'title'                => $settings['title'] ?? null,
+            'image_url'            => $settings['image']['url'] ?? null,
+            'visibility_settings'  => $visibility_settings,
+            'is_hidden_everywhere' => clockwork_is_element_hidden_everywhere( $element ),
+        ];
+
+        if ( isset( $element['elements'] ) && is_array( $element['elements'] ) && ! empty( $element['elements'] ) ) {
+            $node['children'] = clockwork_debug_dump_elements( $element['elements'], $depth + 1 );
+        }
+
+        $out[] = $node;
+    }
+
+    return $out;
+}
+
+/**
  * Extract text content from Elementor elements
  *
  * @param array $elements Elementor elements
@@ -1796,6 +1881,12 @@ function clockwork_extract_content_from_elements( $elements ) {
     $content_parts = [];
 
     foreach ( $elements as $element ) {
+        // Skip elements hidden on every device - they're not shown on the website
+        // and shouldn't appear in the API either (e.g. a disabled sponsor tier).
+        if ( clockwork_is_element_hidden_everywhere( $element ) ) {
+            continue;
+        }
+
         // Text editor widget
         if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'text-editor' ) {
             if ( isset( $element['settings']['editor'] ) ) {
@@ -1824,10 +1915,12 @@ function clockwork_extract_content_from_elements( $elements ) {
         // Image widget
         if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'image' ) {
             if ( isset( $element['settings']['image']['url'] ) ) {
+                $image_link = $element['settings']['link']['url'] ?? '';
                 $content_parts[] = [
-                    'type'    => 'image',
-                    'url'     => $element['settings']['image']['url'],
-                    'alt'     => $element['settings']['image']['alt'] ?? '',
+                    'type' => 'image',
+                    'url'  => $element['settings']['image']['url'],
+                    'alt'  => $element['settings']['image']['alt'] ?? '',
+                    'link' => ! empty( $image_link ) ? $image_link : null,
                 ];
             }
         }
@@ -2059,75 +2152,82 @@ function clockwork_parse_timetable_content( $content_parts ) {
 }
 
 /**
- * Parse sponsors from HTML content
+ * Get a meeting's sponsors, grouped by tier, from the Sponsors tab as it's
+ * actually rendered in Elementor.
  *
- * @param string $html_content HTML content
- * @return array Sponsors data
+ * This must NOT read $product->get_description() (the classic "Description" box):
+ * on this Elementor-built site that field is unused leftover content — often
+ * stale sponsor logos copied from whichever meeting this product was duplicated
+ * from — and isn't shown anywhere on the live page. Reading it previously caused
+ * the API to return "hidden" sponsors that the website never displays.
+ *
+ * @param int $product_id Product ID
+ * @return array<string, array<int, array{title: string, image_url: string, link_url: ?string}>>
  */
-function clockwork_parse_sponsors_from_html( $html_content ) {
-    $sponsors = [];
-    $current_tier = null;
-    $temp_link = null;
+function clockwork_get_meeting_sponsor_tiers( $product_id ) {
+    $elementor_tabs = clockwork_parse_elementor_tabs( $product_id );
+    $sponsors_tab = null;
 
-    $lines = explode( "\n", $html_content );
-    $lines = array_map( 'trim', $lines );
-    $lines = array_filter( $lines );
-
-    foreach ( $lines as $line ) {
-        // Check for sponsor tier header
-        if ( preg_match( '/(.*?)\s*<\/h[1-6]>/i', $line, $matches_header ) ) {
-            $raw_tier_name = trim( $matches_header[1] );
-            $raw_tier_name = preg_replace( '/<h[1-6].*?>/i', '', $raw_tier_name );
-
-            if ( ! empty( $raw_tier_name ) ) {
-                $key = strtolower( str_replace( ' ', '_', $raw_tier_name ) );
-                $key = preg_replace( '/_+/', '_', $key );
-                $current_tier = $key;
-                $temp_link = null;
-
-                if ( ! isset( $sponsors[ $current_tier ] ) ) {
-                    $sponsors[ $current_tier ] = [];
-                }
-                continue;
-            }
-        }
-
-        if ( ! $current_tier ) {
-            continue;
-        }
-
-        // Check for link
-        if ( strpos( $line, '<a href=' ) !== false ) {
-            if ( preg_match( '/href=["\']([^"\']+)["\']/', $line, $matches ) ) {
-                $temp_link = $matches[1];
-            }
-        }
-
-        // Check for image
-        if ( strpos( $line, '<img' ) !== false ) {
-            $img_url = preg_match( '/src=["\']([^"\']+)["\']/', $line, $matches_src ) ? $matches_src[1] : '';
-            $title = preg_match( '/alt=["\']([^"\']*)["\']/', $line, $matches_alt ) ? $matches_alt[1] : '';
-
-            if ( $img_url ) {
-                if ( empty( $title ) ) {
-                    $path = parse_url( $img_url, PHP_URL_PATH );
-                    $filename = basename( $path );
-                    $title = pathinfo( $filename, PATHINFO_FILENAME );
-                    $title = ucwords( str_replace( [ '-', '_', '.' ], ' ', $title ) );
-                }
-
-                $sponsors[ $current_tier ][] = [
-                    'title'     => $title,
-                    'image_url' => $img_url,
-                    'link_url'  => $temp_link,
-                ];
-
-                $temp_link = null;
-            }
+    foreach ( $elementor_tabs as $tab ) {
+        $tab_id = strtolower( $tab['id'] ?? '' );
+        $tab_title = strtolower( $tab['title'] ?? '' );
+        if ( $tab_id === 'sponsors' || strpos( $tab_title, 'sponsor' ) !== false ) {
+            $sponsors_tab = $tab;
+            break;
         }
     }
 
-    return $sponsors;
+    $tab_content = $sponsors_tab ? $sponsors_tab['content'] : [];
+
+    $tiers = [];
+    $current_tier = null;
+
+    foreach ( $tab_content as $part ) {
+        $type = $part['type'] ?? '';
+
+        if ( $type === 'heading' ) {
+            $tier_name = trim( $part['text'] ?? '' );
+            if ( $tier_name === '' ) {
+                continue;
+            }
+            $key = strtolower( str_replace( ' ', '_', $tier_name ) );
+            $current_tier = preg_replace( '/_+/', '_', $key );
+            if ( ! isset( $tiers[ $current_tier ] ) ) {
+                $tiers[ $current_tier ] = [];
+            }
+            continue;
+        }
+
+        if ( ! $current_tier || $type !== 'image' || empty( $part['url'] ) ) {
+            continue;
+        }
+
+        $title = trim( $part['alt'] ?? '' );
+        if ( $title === '' ) {
+            $filename = basename( (string) parse_url( $part['url'], PHP_URL_PATH ) );
+            $title = ucwords( str_replace( [ '-', '_', '.' ], ' ', pathinfo( $filename, PATHINFO_FILENAME ) ) );
+        }
+
+        $tiers[ $current_tier ][] = [
+            'title'     => $title,
+            'image_url' => $part['url'],
+            'link_url'  => $part['link'] ?? null,
+        ];
+    }
+
+    // Only keep tiers that have logos and actually look like sponsor/partner groups
+    // (a stray "Meeting Highlights" or similar heading shouldn't become a tier).
+    return array_filter(
+        $tiers,
+        function( $sponsors, $tier ) {
+            return ! empty( $sponsors ) && (
+                stripos( $tier, 'sponsor' ) !== false ||
+                stripos( $tier, 'partner' ) !== false ||
+                stripos( $tier, 'supporter' ) !== false
+            );
+        },
+        ARRAY_FILTER_USE_BOTH
+    );
 }
 
 
@@ -2812,19 +2912,7 @@ function clockwork_get_single_meeting( $request ) {
         return clockwork_error_response( 'Meeting not found', 404 );
     }
 
-    // Process description for sponsors
-    $desc = $product->get_description();
-    $desc = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', '', $desc );
-    $desc = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $desc );
-    $desc = str_replace( '>', ">\n", $desc );
-
-    $lines = explode( "\n", $desc );
-    $lines = array_map( 'trim', $lines );
-    $lines = array_filter( $lines, fn( $v ) => $v !== '' );
-    $lines = array_unique( $lines );
-    $desc = implode( "\n", $lines );
-
-    $sponsor_data = clockwork_parse_sponsors_from_html( $desc );
+    $sponsor_data = clockwork_get_meeting_sponsor_tiers( $id );
 
     // Get speakers
     $speakers = get_field( 'speakers', $id );
@@ -3373,31 +3461,41 @@ function clockwork_get_meeting_sponsors( $request ) {
         return clockwork_error_response( 'Meeting not found', 404 );
     }
 
-    // Process description for sponsors
-    $desc = $product->get_description();
-    $desc = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', '', $desc );
-    $desc = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $desc );
-    $desc = str_replace( '>', ">\n", $desc );
+    $sponsor_data = clockwork_get_meeting_sponsor_tiers( $id );
 
-    $lines = explode( "\n", $desc );
-    $lines = array_map( 'trim', $lines );
-    $lines = array_filter( $lines, fn( $v ) => $v !== '' );
-    $lines = array_unique( $lines );
-    $desc = implode( "\n", $lines );
-
-    $sponsor_data = clockwork_parse_sponsors_from_html( $desc );
-
-    // Filter to only include actual sponsor tiers (entries with sponsor data)
-    $filtered_sponsors = [];
-    foreach ( $sponsor_data as $tier => $sponsors ) {
-        // Only include tiers that have sponsors and look like sponsor tiers
-        if ( ! empty( $sponsors ) && (
-            stripos( $tier, 'sponsor' ) !== false ||
-            stripos( $tier, 'partner' ) !== false ||
-            stripos( $tier, 'supporter' ) !== false
-        ) ) {
-            $filtered_sponsors[ $tier ] = $sponsors;
+    // Temporary diagnostic (remove once sponsor sourcing is confirmed correct):
+    // lists every Elementor tab found on the page and the raw content of
+    // whichever one got matched as "Sponsors", so a mismatch is visible without DB access.
+    if ( $request->get_param( 'debug' ) ) {
+        $elementor_tabs = clockwork_parse_elementor_tabs( $id );
+        $matched_tab = null;
+        foreach ( $elementor_tabs as $tab ) {
+            $tab_id = strtolower( $tab['id'] ?? '' );
+            $tab_title = strtolower( $tab['title'] ?? '' );
+            if ( $tab_id === 'sponsors' || strpos( $tab_title, 'sponsor' ) !== false ) {
+                $matched_tab = $tab;
+                break;
+            }
         }
+
+        return rest_ensure_response([
+            'success' => true,
+            'message' => 'Meeting Sponsors (debug)',
+            'data'    => [
+                'id'               => $id,
+                'sponsors'         => $sponsor_data,
+                'debug_all_tabs'   => array_map( function( $t ) {
+                    return [
+                        'id'            => $t['id'] ?? '',
+                        'title'         => $t['title'] ?? '',
+                        'content_count' => is_array( $t['content'] ?? null ) ? count( $t['content'] ) : 0,
+                    ];
+                }, $elementor_tabs ),
+                'debug_matched_tab_id' => $matched_tab['id'] ?? null,
+                'debug_matched_tab_content' => $matched_tab['content'] ?? [],
+                'debug_raw_elements' => clockwork_debug_dump_elements( $matched_tab['raw_elements'] ?? [] ),
+            ],
+        ]);
     }
 
     return rest_ensure_response([
@@ -3406,7 +3504,7 @@ function clockwork_get_meeting_sponsors( $request ) {
         'data'    => [
             'id'       => $id,
             'name'     => $product->get_name(),
-            'sponsors' => $filtered_sponsors,
+            'sponsors' => $sponsor_data,
         ],
     ]);
 }
@@ -5664,14 +5762,7 @@ function clockwork_exhibitor_get_event( $request ) {
         }
     }
 
-    // Sponsors parsed from product description
-    $desc = $product->get_description();
-    $desc = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', '', $desc );
-    $desc = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $desc );
-    $desc = str_replace( '>', ">\n", $desc );
-    $lines = array_filter( array_unique( array_map( 'trim', explode( "\n", $desc ) ) ), fn( $v ) => $v !== '' );
-    $desc  = implode( "\n", $lines );
-    $sponsor_data = clockwork_parse_sponsors_from_html( $desc );
+    $sponsor_data = clockwork_get_meeting_sponsor_tiers( $id );
 
     // Gallery images
     $gallery_ids    = $product->get_gallery_image_ids();
