@@ -441,7 +441,6 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
-
     // Feedback Form Endpoints
     register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/feedback', [
         'methods'             => 'GET',
@@ -995,9 +994,17 @@ function clockwork_get_gravity_form_id_from_elementor( $post_id ) {
         return null;
     }
 
-    // Recursively search for gravityform shortcode in Register tab
+    // Prefer a gravityform shortcode explicitly inside a tab titled "Register" - a
+    // page can have other tabs (e.g. "Hackathon") with their own unrelated forms,
+    // and those must never be mistaken for the booking form.
     $form_id = null;
-    clockwork_find_gravity_form_recursive( $elementor_data, $form_id, '' );
+    clockwork_find_gravity_form_recursive( $elementor_data, $form_id, '', true );
+
+    if ( $form_id === null ) {
+        // Fall back to any gravityform shortcode on the page, for simpler meeting
+        // pages that have no "Register"-titled tab at all.
+        clockwork_find_gravity_form_recursive( $elementor_data, $form_id, '', false );
+    }
 
     return $form_id;
 }
@@ -1005,24 +1012,41 @@ function clockwork_get_gravity_form_id_from_elementor( $post_id ) {
 /**
  * Recursively find Gravity Form shortcode in Elementor elements
  *
- * @param array $elements Elementor elements
+ * @param array    $elements Elementor elements
  * @param int|null &$form_id Reference to form ID
- * @param string $current_tab Current tab title
+ * @param string   $current_tab Current tab title
+ * @param bool     $strict When true, only match inside a tab whose title contains
+ *                         "register"; when false, an unknown/no-tab context also matches.
  */
-function clockwork_find_gravity_form_recursive( $elements, &$form_id, $current_tab ) {
+function clockwork_find_gravity_form_recursive( $elements, &$form_id, $current_tab, $strict ) {
     foreach ( $elements as $element ) {
-        $tab_title = $current_tab;
+        // Only the direct children of a nested-tabs widget are actual tab panels -
+        // resolve each one's own title (same key fallback as
+        // clockwork_extract_tabs_recursive) and recurse into it with that title.
+        // A generic container's own "_title" admin label (used everywhere, for
+        // organization, not just tab panels) must NOT be mistaken for a tab name.
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'nested-tabs'
+            && isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+            foreach ( $element['elements'] as $tab_container ) {
+                $tab_title = $tab_container['settings']['n_tab_title']
+                    ?? ( $tab_container['settings']['_title'] ?? '' );
 
-        // Check if this is a tab with title
-        if ( isset( $element['settings']['n_tab_title'] ) ) {
-            $tab_title = $element['settings']['n_tab_title'];
+                if ( isset( $tab_container['elements'] ) && is_array( $tab_container['elements'] ) ) {
+                    clockwork_find_gravity_form_recursive( $tab_container['elements'], $form_id, $tab_title, $strict );
+                    if ( $form_id !== null ) {
+                        return;
+                    }
+                }
+            }
+            continue;
         }
 
         // Check for shortcode widget with gravityform
         if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'shortcode' ) {
             $shortcode = $element['settings']['shortcode'] ?? '';
-            // Check if it's in Register tab (or no tab context)
-            $is_register_tab = empty( $tab_title ) || stripos( $tab_title, 'register' ) !== false;
+            $is_register_tab = $strict
+                ? stripos( $current_tab, 'register' ) !== false
+                : ( empty( $current_tab ) || stripos( $current_tab, 'register' ) !== false );
 
             if ( $is_register_tab && preg_match( '/\[gravityform[^\]]*id=["\']?(\d+)["\']?/i', $shortcode, $matches ) ) {
                 $form_id = intval( $matches[1] );
@@ -1030,9 +1054,9 @@ function clockwork_find_gravity_form_recursive( $elements, &$form_id, $current_t
             }
         }
 
-        // Recurse into nested elements
+        // Recurse into nested elements, keeping whatever tab context we're already in
         if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
-            clockwork_find_gravity_form_recursive( $element['elements'], $form_id, $tab_title );
+            clockwork_find_gravity_form_recursive( $element['elements'], $form_id, $current_tab, $strict );
             if ( $form_id !== null ) {
                 return;
             }
