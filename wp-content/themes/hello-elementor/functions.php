@@ -1637,6 +1637,75 @@ function clockwork_html_to_text( $html ) {
 }
 
 /**
+ * Split a text-editor widget's HTML into separate content blocks (heading/text/list),
+ * one per top-level tag, instead of collapsing everything into a single text blob.
+ * This keeps headings like <h3>/<h5> distinct from body paragraphs, matching how
+ * they're rendered as separate elements on the website.
+ *
+ * @param string $html Raw editor HTML
+ * @return array Content parts
+ */
+function clockwork_html_blocks_to_content_parts( $html ) {
+    $html = trim( (string) $html );
+    if ( $html === '' ) {
+        return [];
+    }
+
+    $html = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', '', $html );
+    $html = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $html );
+    $html = preg_replace( '/\s*(class|style|data-[a-z-]+)="[^"]*"/i', '', $html );
+
+    $dom = new DOMDocument();
+    libxml_use_internal_errors( true );
+    $dom->loadHTML( '<?xml encoding="utf-8" ?><div>' . $html . '</div>', LIBXML_NOERROR | LIBXML_NOWARNING );
+    libxml_clear_errors();
+
+    $wrapper = $dom->getElementsByTagName( 'div' )->item( 0 );
+    if ( ! $wrapper ) {
+        return [];
+    }
+
+    $parts = [];
+    foreach ( $wrapper->childNodes as $node ) {
+        if ( $node->nodeType !== XML_ELEMENT_NODE ) {
+            $text = trim( $node->textContent );
+            if ( $text !== '' ) {
+                $parts[] = [ 'type' => 'text', 'text' => $text ];
+            }
+            continue;
+        }
+
+        $tag = strtolower( $node->nodeName );
+
+        if ( preg_match( '/^h([1-6])$/', $tag, $m ) ) {
+            $text = trim( wp_strip_all_tags( $dom->saveHTML( $node ) ) );
+            if ( $text !== '' ) {
+                $parts[] = [ 'type' => 'heading', 'level' => intval( $m[1] ), 'text' => $text ];
+            }
+        } elseif ( $tag === 'ul' || $tag === 'ol' ) {
+            $items = [];
+            foreach ( $node->getElementsByTagName( 'li' ) as $li ) {
+                $item_text = trim( wp_strip_all_tags( $dom->saveHTML( $li ) ) );
+                if ( $item_text !== '' ) {
+                    $items[] = $item_text;
+                }
+            }
+            if ( ! empty( $items ) ) {
+                $parts[] = [ 'type' => 'list', 'items' => $items ];
+            }
+        } else {
+            $inner = preg_replace( '/<br\s*\/?>/i', "\n", $dom->saveHTML( $node ) );
+            $text = trim( wp_strip_all_tags( $inner ) );
+            if ( $text !== '' ) {
+                $parts[] = [ 'type' => 'text', 'text' => $text ];
+            }
+        }
+    }
+
+    return $parts;
+}
+
+/**
  * Extract text content from Elementor elements
  *
  * @param array $elements Elementor elements
@@ -1649,13 +1718,9 @@ function clockwork_extract_content_from_elements( $elements ) {
         // Text editor widget
         if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'text-editor' ) {
             if ( isset( $element['settings']['editor'] ) ) {
-                $html = $element['settings']['editor'];
-                $text = clockwork_html_to_text( $html );
-                if ( ! empty( trim( $text ) ) ) {
-                    $content_parts[] = [
-                        'type' => 'text',
-                        'text' => $text,
-                    ];
+                $blocks = clockwork_html_blocks_to_content_parts( $element['settings']['editor'] );
+                foreach ( $blocks as $block ) {
+                    $content_parts[] = $block;
                 }
             }
         }
