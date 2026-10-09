@@ -4734,8 +4734,10 @@ function clockwork_get_members_area( $request ) {
                 'location'         => get_post_meta( $product_id, 'WooCommerceEventsLocation', true ) ?: null,
                 'timezone'         => get_post_meta( $product_id, 'WooCommerceEventsTimeZone', true ) ?: null,
             ];
+            $item['_sort_ts'] = intval( get_post_meta( $product_id, 'WooCommerceEventsDateTimestamp', true ) );
         } else {
-            $item['meeting'] = null;
+            $item['meeting']  = null;
+            $item['_sort_ts'] = 0;
         }
 
         // Order summary
@@ -4773,6 +4775,17 @@ function clockwork_get_members_area( $request ) {
         $data[] = $item;
     }
 
+    // Order by meeting date (soonest upcoming first), matching how the meetings
+    // list is ordered elsewhere, instead of whatever order the memberships table
+    // happens to return.
+    usort( $data, function( $a, $b ) {
+        return $a['_sort_ts'] <=> $b['_sort_ts'];
+    } );
+    $data = array_map( function( $item ) {
+        unset( $item['_sort_ts'] );
+        return $item;
+    }, $data );
+
     return clockwork_success_response( 'Members area retrieved successfully', [
         'memberships' => $data,
         'total'       => count( $data ),
@@ -4807,6 +4820,38 @@ function clockwork_get_plan_resources_page_id( $plan_id ) {
 /*******************************************************************************
  * RESOURCES PAGE API ENDPOINT
  ******************************************************************************/
+
+/**
+ * Fetch a video's real title from its provider's oEmbed endpoint, cached in a
+ * transient. WordPress's own oEmbed cache (_oembed_* postmeta) only stores the
+ * rendered embed HTML, and Vimeo's default iframe HTML often has no title
+ * attribute at all, so the title has to be fetched directly instead.
+ *
+ * @param string $oembed_url Full oEmbed JSON endpoint URL for the video
+ * @return string Video title, or '' if it couldn't be fetched
+ */
+function clockwork_get_video_oembed_title( $oembed_url ) {
+    $transient_key = 'cw_oembed_title_' . md5( $oembed_url );
+    $cached = get_transient( $transient_key );
+    if ( false !== $cached ) {
+        return $cached;
+    }
+
+    $title = '';
+    $response = wp_remote_get( $oembed_url, [ 'timeout' => 5 ] );
+    if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        if ( ! empty( $body['title'] ) ) {
+            $title = html_entity_decode( $body['title'], ENT_QUOTES, 'UTF-8' );
+        }
+    }
+
+    // Cache even an empty result for a day so a removed/unlisted video doesn't
+    // get re-fetched on every page request; cache a found title for a week.
+    set_transient( $transient_key, $title, $title !== '' ? WEEK_IN_SECONDS : DAY_IN_SECONDS );
+
+    return $title;
+}
 
 /**
  * GET /clockwork/v1/resources-page/{id}
@@ -4903,7 +4948,7 @@ function clockwork_get_resources_page( $request ) {
                 continue;
             }
             $seen_video_ids[] = $key;
-            // Look up cached oembed title
+            // Look up cached oembed title first (cheap, no network call)
             $title = '';
             foreach ( $oembed_meta as $meta_key => $values ) {
                 if ( 0 !== strpos( $meta_key, '_oembed_' ) || 0 === strpos( $meta_key, '_oembed_time_' ) ) {
@@ -4915,6 +4960,11 @@ function clockwork_get_resources_page( $request ) {
                     $title = isset( $t[1] ) ? html_entity_decode( $t[1] ) : '';
                     break;
                 }
+            }
+            // Vimeo's default embed HTML often has no title attribute at all,
+            // so fall back to asking Vimeo's oEmbed endpoint directly.
+            if ( $title === '' ) {
+                $title = clockwork_get_video_oembed_title( 'https://vimeo.com/api/oembed.json?url=' . rawurlencode( 'https://vimeo.com/' . $vid ) );
             }
             $recordings[] = [
                 'type'      => 'vimeo',
@@ -4938,7 +4988,7 @@ function clockwork_get_resources_page( $request ) {
             $recordings[] = [
                 'type'      => 'vimeo',
                 'id'        => $vid,
-                'title'     => '',
+                'title'     => clockwork_get_video_oembed_title( 'https://vimeo.com/api/oembed.json?url=' . rawurlencode( 'https://vimeo.com/' . $vid ) ),
                 'embed_url' => 'https://player.vimeo.com/video/' . $vid,
                 'watch_url' => 'https://vimeo.com/' . $vid,
             ];
@@ -4954,12 +5004,13 @@ function clockwork_get_resources_page( $request ) {
                 continue;
             }
             $seen_video_ids[] = $key;
+            $watch_url = 'https://www.youtube.com/watch?v=' . $vid;
             $recordings[] = [
                 'type'      => 'youtube',
                 'id'        => $vid,
-                'title'     => '',
+                'title'     => clockwork_get_video_oembed_title( 'https://www.youtube.com/oembed?url=' . rawurlencode( $watch_url ) . '&format=json' ),
                 'embed_url' => 'https://www.youtube.com/embed/' . $vid,
-                'watch_url' => 'https://www.youtube.com/watch?v=' . $vid,
+                'watch_url' => $watch_url,
             ];
         }
     }
