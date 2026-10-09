@@ -1803,16 +1803,26 @@ function clockwork_is_element_hidden_everywhere( $element ) {
         return false;
     }
 
-    // Third-party "Stax" visibility-by-role control (not in this codebase - installed
-    // directly on the live site). Confirmed against the live rendered page: when this
-    // is enabled on an element but no roles have actually been picked, the element
-    // renders for nobody (not even guests), rather than for everyone as "no
-    // restriction configured" might suggest. Only treat that exact, verified state as
-    // hidden - a populated role list is left alone since we can't verify its meaning.
-    if ( isset( $settings['stax_visibility_condition_type'] )
-        && array_key_exists( 'stax_visibility_user_role_conditions', $settings )
-        && empty( $settings['stax_visibility_user_role_conditions'] ) ) {
-        return true;
+    // "Dynamic Content for Elementor" plugin's Dynamic Visibility extension
+    // (DynamicVisibility\Manager::is_hidden()). We only replicate the one case we
+    // can safely evaluate without the full request-context trigger engine (user
+    // role, date range, device, referrer, etc.): the feature is switched on but no
+    // trigger/condition was ever configured. Its default "Show when triggered"
+    // display mode can then never trigger, so the element is unconditionally
+    // hidden - verified against the live site on both a hidden and a visible
+    // sponsor logo. An element with an actually-configured trigger is left alone,
+    // since we can't verify that condition's outcome here.
+    if ( ( $settings['enabled_visibility'] ?? '' ) === 'yes' ) {
+        if ( ! empty( $settings['dce_visibility_hidden'] ) ) {
+            return true;
+        }
+
+        $display_mode_is_show = ( $settings['dce_visibility_selected'] ?? 'yes' ) === 'yes';
+        $has_triggers = ! empty( $settings['dce_visibility_triggers'] );
+
+        if ( $display_mode_is_show && ! $has_triggers ) {
+            return true;
+        }
     }
 
     if ( class_exists( '\Elementor\Plugin' ) && isset( \Elementor\Plugin::$instance->breakpoints ) ) {
