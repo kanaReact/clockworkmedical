@@ -1164,6 +1164,78 @@ function clockwork_map_gravity_field_type( $gf_type ) {
 }
 
 /**
+ * Get TM EPO's conditional-logic rules for a product, keyed by field uniqueid.
+ *
+ * TM EPO lets an admin configure a field to only show when another field's choice
+ * matches a value (e.g. "Conference Fee: 1 Day Ticket" only shows when "Days
+ * Attendance" = "1 Day Ticket"). The plugin resolves this into a fully-qualified
+ * rule set via THEMECOMPLETE_EPO_Conditional_Logic_Base::generate_fields(), which
+ * we reuse here instead of re-implementing the section/element index resolution.
+ *
+ * @param int $product_id Product ID
+ * @return array<string, array{action: string, groups: array}> Rules keyed by field uniqueid
+ */
+function clockwork_get_epo_conditional_logic( $product_id ) {
+    $rules_by_id = [];
+
+    if ( ! class_exists( 'THEMECOMPLETE_EPO_Conditional_Logic_Base' ) ) {
+        return $rules_by_id;
+    }
+
+    try {
+        $fields = THEMECOMPLETE_EPO_Conditional_Logic_Base::instance()->generate_fields( $product_id );
+
+        if ( empty( $fields ) || ! is_array( $fields ) ) {
+            return $rules_by_id;
+        }
+
+        $all_fields = array_merge( $fields['required'] ?? [], $fields['not_required'] ?? [] );
+
+        foreach ( $all_fields as $uniqueid => $field_data ) {
+            $logic = $field_data['logicrules'] ?? null;
+            if ( empty( $logic ) || empty( $logic['rules'] ) || empty( $logic['toggle'] ) ) {
+                continue;
+            }
+
+            $groups = [];
+            foreach ( $logic['rules'] as $group ) {
+                if ( ! is_array( $group ) ) {
+                    continue;
+                }
+                $conditions = [];
+                foreach ( $group as $condition ) {
+                    if ( empty( $condition['element'] ) ) {
+                        continue;
+                    }
+                    $conditions[] = [
+                        'field_id' => $condition['element'],
+                        'operator' => $condition['operator'] ?? 'is',
+                        'value'    => isset( $condition['value'] ) ? rawurldecode( $condition['value'] ) : '',
+                    ];
+                }
+                if ( ! empty( $conditions ) ) {
+                    $groups[] = $conditions;
+                }
+            }
+
+            if ( ! empty( $groups ) ) {
+                $rules_by_id[ $uniqueid ] = [
+                    // "show": field is visible only when a group of conditions matches.
+                    // "hide": field is visible unless a group of conditions matches.
+                    'action' => 'hide' === $logic['toggle'] ? 'hide' : 'show',
+                    // Groups are OR'd together; conditions within a group are AND'd.
+                    'groups' => $groups,
+                ];
+            }
+        }
+    } catch ( Exception $e ) {
+        // Conditional logic is an enhancement, not critical — fail silently.
+    }
+
+    return $rules_by_id;
+}
+
+/**
  * Get Extra Product Options from TM EPO plugin
  *
  * @param int $product_id Product ID
@@ -1280,6 +1352,15 @@ function clockwork_get_extra_product_options( $product_id ) {
         $seen_labels[ $label ] = true;
         $final_options[] = $opt;
     }
+
+    // Attach TM EPO's conditional-logic rules (e.g. "show this field only when the
+    // 1 Day Ticket radio is selected") so clients can replicate the website's
+    // show/hide behaviour instead of rendering every field at once.
+    $conditional_logic = clockwork_get_epo_conditional_logic( $product_id );
+    foreach ( $final_options as &$final_opt ) {
+        $final_opt['conditional_logic'] = $conditional_logic[ $final_opt['id'] ] ?? null;
+    }
+    unset( $final_opt );
 
     return $final_options;
 }
