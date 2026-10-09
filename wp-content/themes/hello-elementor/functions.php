@@ -441,6 +441,7 @@ function clockwork_register_rest_routes() {
         'permission_callback' => '__return_true',
     ]);
 
+
     // Feedback Form Endpoints
     register_rest_route( $namespace_v1, '/meetings/(?P<id>\d+)/feedback', [
         'methods'             => 'GET',
@@ -1366,6 +1367,23 @@ function clockwork_get_extra_product_options( $product_id ) {
 }
 
 /**
+ * Convert a TM EPO raw price value to a float, tolerating admin-entered currency
+ * symbols/commas (e.g. "£80") that make PHP's floatval() silently return 0.
+ *
+ * @param mixed $raw Raw price value from the builder array
+ * @return float
+ */
+function clockwork_epo_price_to_float( $raw ) {
+    if ( is_numeric( $raw ) ) {
+        return floatval( $raw );
+    }
+
+    $clean = preg_replace( '/[^0-9.\-]/', '', (string) $raw );
+
+    return $clean === '' ? 0.0 : floatval( $clean );
+}
+
+/**
  * Parse TM EPO builder structure to extract options
  * The builder stores element data as indexed arrays where each index represents an element
  *
@@ -1439,12 +1457,13 @@ function clockwork_parse_epo_builder( $builder ) {
             $sale_prices = $builder[ $options_sale_price_key ][ $type_idx ] ?? [];
 
             foreach ( $titles as $opt_idx => $opt_title ) {
+                $raw_sale_price = $sale_prices[ $opt_idx ] ?? null;
                 $choice = [
                     'label'       => $opt_title,
                     'value'       => $values[ $opt_idx ] ?? $opt_title,
-                    'price'       => floatval( $prices[ $opt_idx ] ?? 0 ),
+                    'price'       => clockwork_epo_price_to_float( $prices[ $opt_idx ] ?? 0 ),
                     'price_type'  => ! empty( $price_types[ $opt_idx ] ) ? $price_types[ $opt_idx ] : 'fixed',
-                    'sale_price'  => ! empty( $sale_prices[ $opt_idx ] ) ? floatval( $sale_prices[ $opt_idx ] ) : null,
+                    'sale_price'  => ! empty( $raw_sale_price ) ? clockwork_epo_price_to_float( $raw_sale_price ) : null,
                 ];
                 $choices[] = $choice;
             }
