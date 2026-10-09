@@ -2544,7 +2544,10 @@ function clockwork_update_profile_api( $request ) {
  */
 function clockwork_get_meetings_list( $request ) {
     $page = max( 1, intval( $request->get_param( 'page' ) ) );
-    $per_page = 10;
+    $per_page_param = $request->get_param( 'per_page' );
+    $per_page = ( $per_page_param !== null && $per_page_param !== '' )
+        ? min( 100, max( 1, intval( $per_page_param ) ) )
+        : 10;
 
     $now = time();
 
@@ -2573,15 +2576,14 @@ function clockwork_get_meetings_list( $request ) {
 
             $post_id = get_the_ID();
 
-            // Skip meetings that have already finished (end date, or start date if no end date, is in the past).
-            $end_ts = get_post_meta( $post_id, 'WooCommerceEventsEndDateTimestamp', true );
-            $start_ts = get_post_meta( $post_id, 'WooCommerceEventsDateTimestamp', true );
+            // Skip meetings that have already finished. Use whichever of end/start timestamp is
+            // later and actually set (> 0) — some single-day events carry a stale/empty end
+            // timestamp meta, which must never be trusted over a valid, later start timestamp.
+            $end_ts = intval( get_post_meta( $post_id, 'WooCommerceEventsEndDateTimestamp', true ) );
+            $start_ts = intval( get_post_meta( $post_id, 'WooCommerceEventsDateTimestamp', true ) );
+            $cutoff_ts = max( $end_ts, $start_ts );
 
-            if ( $end_ts !== '' ) {
-                if ( intval( $end_ts ) < $now ) {
-                    continue;
-                }
-            } elseif ( $start_ts !== '' && intval( $start_ts ) < $now ) {
+            if ( $cutoff_ts > 0 && $cutoff_ts < $now ) {
                 continue;
             }
 
@@ -2604,6 +2606,7 @@ function clockwork_get_meetings_list( $request ) {
             }
 
             $all_meetings[] = [
+                '_sort_ts'       => $start_ts,
                 'id'             => $post_id,
                 'name'           => get_the_title(),
                 'date'           => get_post_meta( $post_id, 'WooCommerceEventsDate', true ) ?: null,
@@ -2626,6 +2629,15 @@ function clockwork_get_meetings_list( $request ) {
         }
         wp_reset_postdata();
     }
+
+    // Match the order meetings appear in on the website: soonest upcoming meeting first.
+    usort( $all_meetings, function( $a, $b ) {
+        return $a['_sort_ts'] <=> $b['_sort_ts'];
+    } );
+    $all_meetings = array_map( function( $meeting ) {
+        unset( $meeting['_sort_ts'] );
+        return $meeting;
+    }, $all_meetings );
 
     $total_items = count( $all_meetings );
     $total_pages = $per_page > 0 ? (int) ceil( $total_items / $per_page ) : 1;
