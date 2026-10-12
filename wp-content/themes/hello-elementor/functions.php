@@ -2267,19 +2267,13 @@ function clockwork_get_meeting_sponsor_tiers( $product_id ) {
         ];
     }
 
-    // Only keep tiers that have logos and actually look like sponsor/partner groups
-    // (a stray "Meeting Highlights" or similar heading shouldn't become a tier).
-    return array_filter(
-        $tiers,
-        function( $sponsors, $tier ) {
-            return ! empty( $sponsors ) && (
-                stripos( $tier, 'sponsor' ) !== false ||
-                stripos( $tier, 'partner' ) !== false ||
-                stripos( $tier, 'supporter' ) !== false
-            );
-        },
-        ARRAY_FILTER_USE_BOTH
-    );
+    // Only keep tiers that actually have logos under them. Tier headings vary
+    // per meeting - some say "Premium Plus Sponsors", others are bare tier names
+    // like "Platinum" or "Premium" - so naming can't be used as a filter here;
+    // being inside the Sponsors tab at all is what makes a heading a tier. A
+    // stray heading with no images under it (e.g. "Meeting Highlights") is
+    // already excluded since it never gets anything pushed into its bucket.
+    return array_filter( $tiers );
 }
 
 
@@ -4827,8 +4821,15 @@ function clockwork_get_plan_resources_page_id( $plan_id ) {
  * rendered embed HTML, and Vimeo's default iframe HTML often has no title
  * attribute at all, so the title has to be fetched directly instead.
  *
+ * This must never block the API request on an external call: a resources page
+ * with several recordings could add many seconds of latency (or hit the
+ * server's execution time limit) waiting on Vimeo/YouTube, which would fail
+ * the entire response, not just the titles. So a cache miss schedules a
+ * background fetch via WP-Cron and returns '' immediately; the title becomes
+ * available on a later request once the cache is populated.
+ *
  * @param string $oembed_url Full oEmbed JSON endpoint URL for the video
- * @return string Video title, or '' if it couldn't be fetched
+ * @return string Video title, or '' if not yet cached
  */
 function clockwork_get_video_oembed_title( $oembed_url ) {
     $transient_key = 'cw_oembed_title_' . md5( $oembed_url );
@@ -4837,8 +4838,25 @@ function clockwork_get_video_oembed_title( $oembed_url ) {
         return $cached;
     }
 
+    if ( ! wp_next_scheduled( 'clockwork_fetch_oembed_title', [ $oembed_url ] ) ) {
+        wp_schedule_single_event( time(), 'clockwork_fetch_oembed_title', [ $oembed_url ] );
+    }
+
+    return '';
+}
+add_action( 'clockwork_fetch_oembed_title', 'clockwork_fetch_and_cache_oembed_title' );
+
+/**
+ * Background (WP-Cron) handler: actually performs the oEmbed HTTP call and
+ * caches the result. Never called directly from a request.
+ *
+ * @param string $oembed_url Full oEmbed JSON endpoint URL for the video
+ */
+function clockwork_fetch_and_cache_oembed_title( $oembed_url ) {
+    $transient_key = 'cw_oembed_title_' . md5( $oembed_url );
+
     $title = '';
-    $response = wp_remote_get( $oembed_url, [ 'timeout' => 5 ] );
+    $response = wp_remote_get( $oembed_url, [ 'timeout' => 8 ] );
     if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
         if ( ! empty( $body['title'] ) ) {
@@ -4847,10 +4865,132 @@ function clockwork_get_video_oembed_title( $oembed_url ) {
     }
 
     // Cache even an empty result for a day so a removed/unlisted video doesn't
-    // get re-fetched on every page request; cache a found title for a week.
+    // get re-fetched on every cron run; cache a found title for a week.
     set_transient( $transient_key, $title, $title !== '' ? WEEK_IN_SECONDS : DAY_IN_SECONDS );
+}
 
-    return $title;
+/**
+ * Parse a Vimeo/YouTube URL into its provider and video ID.
+ *
+ * @param string $url Video URL
+ * @return array{type: string, id: string}|null
+ */
+function clockwork_parse_video_url( $url ) {
+    if ( preg_match( '#vimeo\.com/(?:video/)?(\d+)#', $url, $m ) ) {
+        return [ 'type' => 'vimeo', 'id' => $m[1] ];
+    }
+    if ( preg_match( '#(?:youtube\.com/watch[^"\'<\s]*?[?&]v=|youtu\.be/|youtube\.com/embed/)([A-Za-z0-9_-]{11})#', $url, $m ) ) {
+        return [ 'type' => 'youtube', 'id' => $m[1] ];
+    }
+    return null;
+}
+
+/**
+ * Recursively walk an Elementor element tree looking for "nested-accordion"
+ * widgets (the resources page's Day/Session timetable), tracking the nearest
+ * preceding "Day N" heading as we go.
+ *
+ * The accordion's item titles live on the PARENT widget's "items" repeater
+ * (settings.items[i].item_title), not on the child content container itself -
+ * unlike nested-tabs, where the title gets copied onto each tab panel. The
+ * child containers in $element['elements'] line up by index with that repeater.
+ *
+ * @param array       $elements Elementor elements
+ * @param string|null $current_day Day heading seen so far (passed by reference)
+ * @return array<int, array{day: ?string, title: string, content: array}>
+ */
+function clockwork_extract_resources_sessions( $elements, &$current_day ) {
+    $sessions = [];
+
+    if ( ! is_array( $elements ) ) {
+        return $sessions;
+    }
+
+    foreach ( $elements as $element ) {
+        if ( ! is_array( $element ) || clockwork_is_element_hidden_everywhere( $element ) ) {
+            continue;
+        }
+
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'heading' ) {
+            $heading_text = trim( wp_strip_all_tags( $element['settings']['title'] ?? '' ) );
+            if ( $heading_text !== '' && preg_match( '/^day\s*\d+/i', $heading_text ) ) {
+                $current_day = $heading_text;
+            }
+        }
+
+        if ( isset( $element['widgetType'] ) && $element['widgetType'] === 'nested-accordion' ) {
+            $items = $element['settings']['items'] ?? [];
+            $children = $element['elements'] ?? [];
+
+            foreach ( $items as $index => $item ) {
+                $title = trim( wp_strip_all_tags( $item['item_title'] ?? '' ) );
+                $child = $children[ $index ] ?? null;
+
+                $content = [];
+                if ( is_array( $child ) && ! clockwork_is_element_hidden_everywhere( $child ) && isset( $child['elements'] ) ) {
+                    $content = clockwork_extract_content_from_elements( $child['elements'] );
+                }
+
+                $sessions[] = [
+                    'day'     => $current_day,
+                    'title'   => $title,
+                    'content' => $content,
+                ];
+            }
+            continue;
+        }
+
+        if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+            $nested = clockwork_extract_resources_sessions( $element['elements'], $current_day );
+            if ( ! empty( $nested ) ) {
+                $sessions = array_merge( $sessions, $nested );
+            }
+        }
+    }
+
+    return $sessions;
+}
+
+/**
+ * Build the Day > Session timetable (with each session's recordings/content)
+ * for a resources page, from its Elementor accordion structure.
+ *
+ * @param int $page_id Page ID
+ * @return array<int, array{day: ?string, sessions: array}>
+ */
+function clockwork_get_resources_timetable( $page_id ) {
+    $elementor_data = get_post_meta( $page_id, '_elementor_data', true );
+    if ( is_string( $elementor_data ) ) {
+        $elementor_data = json_decode( $elementor_data, true );
+    }
+    if ( ! is_array( $elementor_data ) ) {
+        return [];
+    }
+
+    $current_day = null;
+    $sessions = clockwork_extract_resources_sessions( $elementor_data, $current_day );
+
+    $days = [];
+    foreach ( $sessions as $session ) {
+        $day_key = $session['day'] ?? '';
+        if ( ! isset( $days[ $day_key ] ) ) {
+            $days[ $day_key ] = [];
+        }
+        $days[ $day_key ][] = [
+            'title'   => $session['title'],
+            'content' => $session['content'],
+        ];
+    }
+
+    $result = [];
+    foreach ( $days as $day_label => $day_sessions ) {
+        $result[] = [
+            'day'      => $day_label !== '' ? $day_label : null,
+            'sessions' => $day_sessions,
+        ];
+    }
+
+    return $result;
 }
 
 /**
@@ -4934,84 +5074,125 @@ function clockwork_get_resources_page( $request ) {
         }
     }
 
-    // --- Extract recordings: Vimeo iframes, raw Vimeo URLs, and YouTube URLs ---
-    $recordings     = [];
+    // --- Timetable: Day > Session structure from the page's Elementor accordion,
+    // matching how the website actually organizes and labels recordings (e.g.
+    // "Session 1 - Microbiology Update - Diagnostics") rather than a flat list.
+    $timetable  = clockwork_get_resources_timetable( $page_id );
+    $recordings = [];
     $seen_video_ids = [];
-    $decoded_content = html_entity_decode( $content );
 
-    // 1. Vimeo iframes embedded in accordions / content
-    if ( preg_match_all( '/player\.vimeo\.com\/video\/(\d+)/', $decoded_content, $vimeo_iframe_matches, PREG_SET_ORDER ) ) {
-        foreach ( $vimeo_iframe_matches as $match ) {
-            $vid = $match[1];
-            $key = 'vimeo_' . $vid;
-            if ( in_array( $key, $seen_video_ids, true ) ) {
-                continue;
-            }
-            $seen_video_ids[] = $key;
-            // Look up cached oembed title first (cheap, no network call)
-            $title = '';
-            foreach ( $oembed_meta as $meta_key => $values ) {
-                if ( 0 !== strpos( $meta_key, '_oembed_' ) || 0 === strpos( $meta_key, '_oembed_time_' ) ) {
+    foreach ( $timetable as $day ) {
+        foreach ( $day['sessions'] as $session ) {
+            foreach ( $session['content'] as $part ) {
+                if ( ( $part['type'] ?? '' ) !== 'video' || empty( $part['url'] ) ) {
                     continue;
                 }
-                $cached = $values[0] ?? '';
-                if ( strpos( $cached, $vid ) !== false ) {
-                    preg_match( '/title=["\']([^"\']+)["\']/', $cached, $t );
-                    $title = isset( $t[1] ) ? html_entity_decode( $t[1] ) : '';
-                    break;
+                $video = clockwork_parse_video_url( $part['url'] );
+                if ( ! $video ) {
+                    continue;
                 }
+                $key = $video['type'] . '_' . $video['id'];
+                if ( in_array( $key, $seen_video_ids, true ) ) {
+                    continue;
+                }
+                $seen_video_ids[] = $key;
+
+                $recordings[] = $video['type'] === 'vimeo' ? [
+                    'type'      => 'vimeo',
+                    'id'        => $video['id'],
+                    'title'     => $session['title'],
+                    'embed_url' => 'https://player.vimeo.com/video/' . $video['id'],
+                    'watch_url' => 'https://vimeo.com/' . $video['id'],
+                ] : [
+                    'type'      => 'youtube',
+                    'id'        => $video['id'],
+                    'title'     => $session['title'],
+                    'embed_url' => 'https://www.youtube.com/embed/' . $video['id'],
+                    'watch_url' => 'https://www.youtube.com/watch?v=' . $video['id'],
+                ];
             }
-            // Vimeo's default embed HTML often has no title attribute at all,
-            // so fall back to asking Vimeo's oEmbed endpoint directly.
-            if ( $title === '' ) {
-                $title = clockwork_get_video_oembed_title( 'https://vimeo.com/api/oembed.json?url=' . rawurlencode( 'https://vimeo.com/' . $vid ) );
-            }
-            $recordings[] = [
-                'type'      => 'vimeo',
-                'id'        => $vid,
-                'title'     => $title,
-                'embed_url' => 'https://player.vimeo.com/video/' . $vid,
-                'watch_url' => 'https://vimeo.com/' . $vid,
-            ];
         }
     }
 
-    // 2. Raw Vimeo URLs (vimeo.com/{id}) not already captured via iframe
-    if ( preg_match_all( '#vimeo\.com/(\d+)#', $decoded_content, $raw_vimeo_matches, PREG_SET_ORDER ) ) {
-        foreach ( $raw_vimeo_matches as $match ) {
-            $vid = $match[1];
-            $key = 'vimeo_' . $vid;
-            if ( in_array( $key, $seen_video_ids, true ) ) {
-                continue; // already captured from iframe
-            }
-            $seen_video_ids[] = $key;
-            $recordings[] = [
-                'type'      => 'vimeo',
-                'id'        => $vid,
-                'title'     => clockwork_get_video_oembed_title( 'https://vimeo.com/api/oembed.json?url=' . rawurlencode( 'https://vimeo.com/' . $vid ) ),
-                'embed_url' => 'https://player.vimeo.com/video/' . $vid,
-                'watch_url' => 'https://vimeo.com/' . $vid,
-            ];
-        }
-    }
+    // Fall back to scanning raw post_content for simpler resources pages that
+    // don't use the Day/Session accordion structure at all.
+    if ( empty( $timetable ) ) {
+        $decoded_content = html_entity_decode( $content );
 
-    // 3. YouTube URLs — youtube.com/watch?v= and youtu.be/
-    if ( preg_match_all( '#(?:youtube\.com/watch[^"\'<\s]*?[?&]v=|youtu\.be/)([A-Za-z0-9_-]{11})#', $decoded_content, $yt_matches, PREG_SET_ORDER ) ) {
-        foreach ( $yt_matches as $match ) {
-            $vid = $match[1];
-            $key = 'yt_' . $vid;
-            if ( in_array( $key, $seen_video_ids, true ) ) {
-                continue;
+        // 1. Vimeo iframes embedded in accordions / content
+        if ( preg_match_all( '/player\.vimeo\.com\/video\/(\d+)/', $decoded_content, $vimeo_iframe_matches, PREG_SET_ORDER ) ) {
+            foreach ( $vimeo_iframe_matches as $match ) {
+                $vid = $match[1];
+                $key = 'vimeo_' . $vid;
+                if ( in_array( $key, $seen_video_ids, true ) ) {
+                    continue;
+                }
+                $seen_video_ids[] = $key;
+                // Look up cached oembed title first (cheap, no network call)
+                $title = '';
+                foreach ( $oembed_meta as $meta_key => $values ) {
+                    if ( 0 !== strpos( $meta_key, '_oembed_' ) || 0 === strpos( $meta_key, '_oembed_time_' ) ) {
+                        continue;
+                    }
+                    $cached = $values[0] ?? '';
+                    if ( strpos( $cached, $vid ) !== false ) {
+                        preg_match( '/title=["\']([^"\']+)["\']/', $cached, $t );
+                        $title = isset( $t[1] ) ? html_entity_decode( $t[1] ) : '';
+                        break;
+                    }
+                }
+                // Vimeo's default embed HTML often has no title attribute at all,
+                // so fall back to asking Vimeo's oEmbed endpoint directly.
+                if ( $title === '' ) {
+                    $title = clockwork_get_video_oembed_title( 'https://vimeo.com/api/oembed.json?url=' . rawurlencode( 'https://vimeo.com/' . $vid ) );
+                }
+                $recordings[] = [
+                    'type'      => 'vimeo',
+                    'id'        => $vid,
+                    'title'     => $title,
+                    'embed_url' => 'https://player.vimeo.com/video/' . $vid,
+                    'watch_url' => 'https://vimeo.com/' . $vid,
+                ];
             }
-            $seen_video_ids[] = $key;
-            $watch_url = 'https://www.youtube.com/watch?v=' . $vid;
-            $recordings[] = [
-                'type'      => 'youtube',
-                'id'        => $vid,
-                'title'     => clockwork_get_video_oembed_title( 'https://www.youtube.com/oembed?url=' . rawurlencode( $watch_url ) . '&format=json' ),
-                'embed_url' => 'https://www.youtube.com/embed/' . $vid,
-                'watch_url' => $watch_url,
-            ];
+        }
+
+        // 2. Raw Vimeo URLs (vimeo.com/{id}) not already captured via iframe
+        if ( preg_match_all( '#vimeo\.com/(\d+)#', $decoded_content, $raw_vimeo_matches, PREG_SET_ORDER ) ) {
+            foreach ( $raw_vimeo_matches as $match ) {
+                $vid = $match[1];
+                $key = 'vimeo_' . $vid;
+                if ( in_array( $key, $seen_video_ids, true ) ) {
+                    continue; // already captured from iframe
+                }
+                $seen_video_ids[] = $key;
+                $recordings[] = [
+                    'type'      => 'vimeo',
+                    'id'        => $vid,
+                    'title'     => clockwork_get_video_oembed_title( 'https://vimeo.com/api/oembed.json?url=' . rawurlencode( 'https://vimeo.com/' . $vid ) ),
+                    'embed_url' => 'https://player.vimeo.com/video/' . $vid,
+                    'watch_url' => 'https://vimeo.com/' . $vid,
+                ];
+            }
+        }
+
+        // 3. YouTube URLs — youtube.com/watch?v= and youtu.be/
+        if ( preg_match_all( '#(?:youtube\.com/watch[^"\'<\s]*?[?&]v=|youtu\.be/)([A-Za-z0-9_-]{11})#', $decoded_content, $yt_matches, PREG_SET_ORDER ) ) {
+            foreach ( $yt_matches as $match ) {
+                $vid = $match[1];
+                $key = 'yt_' . $vid;
+                if ( in_array( $key, $seen_video_ids, true ) ) {
+                    continue;
+                }
+                $seen_video_ids[] = $key;
+                $watch_url = 'https://www.youtube.com/watch?v=' . $vid;
+                $recordings[] = [
+                    'type'      => 'youtube',
+                    'id'        => $vid,
+                    'title'     => clockwork_get_video_oembed_title( 'https://www.youtube.com/oembed?url=' . rawurlencode( $watch_url ) . '&format=json' ),
+                    'embed_url' => 'https://www.youtube.com/embed/' . $vid,
+                    'watch_url' => $watch_url,
+                ];
+            }
         }
     }
 
@@ -5021,6 +5202,7 @@ function clockwork_get_resources_page( $request ) {
         'slug'       => $post->post_name,
         'url'        => get_permalink( $page_id ),
         'intro_text' => $intro_text,
+        'timetable'  => $timetable,
         'recordings' => $recordings,
         'form_ids'   => array_values( $form_ids ),
         'images'     => $images,
