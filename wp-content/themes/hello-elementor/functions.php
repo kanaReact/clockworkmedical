@@ -1378,6 +1378,24 @@ function clockwork_get_extra_product_options( $product_id ) {
         $final_options[] = $opt;
     }
 
+    // get_product_tm_epos() returns every global option group technically linked to
+    // this product, but TM EPO applies further display-time rules (per-element enabled
+    // flags, section placement, etc.) that aren't exposed through its data API and can
+    // silently drop groups meant for other products. Use the plugin's own front-end
+    // renderer as the source of truth and only keep groups that actually appear there.
+    $rendered_text = clockwork_get_tm_epo_rendered_text( $product_id );
+    if ( ! empty( $rendered_text ) ) {
+        $final_options = array_values(
+            array_filter(
+                $final_options,
+                function ( $opt ) use ( $rendered_text ) {
+                    $label = trim( $opt['label'] ?? '' );
+                    return '' !== $label && false !== stripos( $rendered_text, $label );
+                }
+            )
+        );
+    }
+
     // Attach TM EPO's conditional-logic rules (e.g. "show this field only when the
     // 1 Day Ticket radio is selected") so clients can replicate the website's
     // show/hide behaviour instead of rendering every field at once.
@@ -1388,6 +1406,38 @@ function clockwork_get_extra_product_options( $product_id ) {
     unset( $final_opt );
 
     return $final_options;
+}
+
+/**
+ * Render a product's TM EPO add-to-cart fields using the plugin's own front-end
+ * renderer (the same code path the product page uses) and return the plain visible
+ * text. Used purely as a presence check: if a field's label doesn't show up here,
+ * the website isn't displaying it, regardless of what the raw EPO data contains.
+ *
+ * @param int $product_id Product ID
+ * @return string|null Plain visible text, or null if rendering wasn't possible
+ */
+function clockwork_get_tm_epo_rendered_text( $product_id ) {
+    if ( ! function_exists( 'THEMECOMPLETE_EPO_DISPLAY' ) || ! method_exists( THEMECOMPLETE_EPO_DISPLAY(), 'tm_epo_fields' ) ) {
+        return null;
+    }
+
+    try {
+        ob_start();
+        THEMECOMPLETE_EPO_DISPLAY()->tm_epo_fields( $product_id, '', true );
+        $html = ob_get_clean();
+    } catch ( Exception $e ) {
+        if ( ob_get_level() > 0 ) {
+            ob_end_clean();
+        }
+        return null;
+    }
+
+    if ( '' === trim( (string) $html ) ) {
+        return null;
+    }
+
+    return html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES, 'UTF-8' );
 }
 
 /**
@@ -3168,6 +3218,78 @@ function clockwork_get_meeting_overview( $request ) {
 }
 
 /**
+ * Check whether the website is actually showing the registration/add-to-cart
+ * widgets for this meeting, or a "registration not open yet" placeholder instead.
+ * Editors implement the placeholder state by wrapping the WooCommerce add-to-cart
+ * widget in a container whose Dynamic Visibility is switched on with no trigger
+ * configured - the same unconditional-hide pattern already detected by
+ * clockwork_is_element_hidden_everywhere() - and remove that flag once
+ * registration opens.
+ *
+ * @param int $post_id Post ID
+ * @return bool True if registration is open (or we couldn't determine otherwise)
+ */
+function clockwork_is_registration_open( $post_id ) {
+    $elementor_data = get_post_meta( $post_id, '_elementor_data', true );
+    if ( is_string( $elementor_data ) ) {
+        $elementor_data = json_decode( $elementor_data, true );
+    }
+    if ( ! is_array( $elementor_data ) ) {
+        return true;
+    }
+
+    $add_to_cart_hidden = null;
+
+    $walk = function ( $elements, $hidden_ancestor ) use ( &$walk, &$add_to_cart_hidden ) {
+        foreach ( $elements as $el ) {
+            if ( null !== $add_to_cart_hidden ) {
+                return;
+            }
+
+            $is_hidden = $hidden_ancestor || clockwork_is_element_hidden_everywhere( $el );
+
+            if ( ( $el['widgetType'] ?? '' ) === 'woocommerce-product-add-to-cart' ) {
+                $add_to_cart_hidden = $is_hidden;
+                return;
+            }
+
+            if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+                $walk( $el['elements'], $is_hidden );
+            }
+        }
+    };
+    $walk( $elementor_data, false );
+
+    // Couldn't find the add-to-cart widget at all - don't block registration
+    // based on something we couldn't verify.
+    if ( null === $add_to_cart_hidden ) {
+        return true;
+    }
+
+    return ! $add_to_cart_hidden;
+}
+
+/**
+ * Whether a Gravity Form actually charges the submitter anything, as opposed to
+ * being a plain lead-capture form (e.g. "Register Your Interest"). The site uses
+ * the Gravity Forms Stripe add-on to take payment on a form, so an active Stripe
+ * feed on the form is the authoritative signal - the form itself has no price
+ * fields of its own to inspect otherwise.
+ *
+ * @param int $form_id Gravity Form ID
+ * @return bool
+ */
+function clockwork_gravity_form_has_payment_feed( $form_id ) {
+    if ( ! class_exists( 'GFAPI' ) ) {
+        return false;
+    }
+
+    $feeds = GFAPI::get_feeds( null, $form_id, 'gravityformsstripe' );
+
+    return ! is_wp_error( $feeds ) && ! empty( $feeds );
+}
+
+/**
  * GET /clockwork/v1/meetings/{id}/register
  * Get meeting registration options (Gravity Form fields, or fallback to TM EPO options)
  */
@@ -3188,6 +3310,12 @@ function clockwork_get_meeting_register( $request ) {
     // Get product attributes
     $attributes = clockwork_get_product_attributes( $product );
 
+    // Whether the website is actually showing the WooCommerce add-to-cart widget,
+    // or a "registration not open yet" placeholder instead. This only applies to
+    // the paid/TM EPO checkout flow - a Gravity Form (e.g. a "Register Your
+    // Interest" lead-capture form) is a separate widget and isn't gated by it.
+    $registration_open = clockwork_is_registration_open( $id );
+
     // Check for Gravity Form in Register tab first
     $gravity_form_id = clockwork_get_gravity_form_id_from_elementor( $id );
     $form_fields = [];
@@ -3201,12 +3329,25 @@ function clockwork_get_meeting_register( $request ) {
         }
     }
 
-    // Fallback to TM EPO options if no Gravity Form found
-    if ( empty( $form_fields ) ) {
+    // Fallback to TM EPO options if no Gravity Form found and the add-to-cart
+    // widget is actually open for business.
+    if ( empty( $form_fields ) && $registration_open ) {
         $form_fields = clockwork_get_extra_product_options( $id );
         if ( ! empty( $form_fields ) ) {
             $form_source = 'tm_epo';
         }
+    }
+
+    // Does completing this form actually charge the user anything? TM EPO always
+    // feeds into the WooCommerce checkout (its choices carry prices), while a
+    // Gravity Form is only a paid registration if it has an active Stripe feed -
+    // otherwise it's a plain lead-capture form (e.g. "Register Your Interest").
+    if ( 'tm_epo' === $form_source ) {
+        $requires_payment = true;
+    } elseif ( 'gravity_forms' === $form_source ) {
+        $requires_payment = clockwork_gravity_form_has_payment_feed( $gravity_form_id );
+    } else {
+        $requires_payment = false;
     }
 
     // Parse Elementor tabs and find Register tab for additional content
@@ -3222,26 +3363,38 @@ function clockwork_get_meeting_register( $request ) {
         }
     }
 
+    // Direct link to the Register tab (the nested-tabs widget activates a tab
+    // whose URL hash matches its slug), so a client can open the real,
+    // fully-functional form in a browser - useful as a fallback when a form
+    // can't be reconstructed natively (e.g. a Gravity Form without a usable
+    // submit flow in the app).
+    $register_url = $register_content
+        ? get_permalink( $id ) . '#' . $register_content['id']
+        : null;
+
     $registration = [
-        'id'              => $id,
-        'name'            => $product->get_name(),
-        'product_type'    => $product_type,
-        'price'           => $product->get_price(),
-        'regular_price'   => $product->get_regular_price(),
-        'sale_price'      => $product->get_sale_price() ?: null,
-        'currency'        => get_woocommerce_currency(),
-        'currency_symbol' => get_woocommerce_currency_symbol(),
-        'is_in_stock'     => $product->is_in_stock(),
-        'stock_status'    => $product->get_stock_status(),
-        'stock_quantity'  => intval( $product->get_stock_quantity() ),
-        'sku'             => $product->get_sku(),
-        'url'             => get_permalink( $id ),
-        'variations'      => $variations,
-        'attributes'      => $attributes,
-        'form_source'     => $form_source,
-        'form_id'         => $gravity_form_id,
-        'form_fields'     => $form_fields,
-        'tab_content'     => $register_content ? $register_content['content'] : [],
+        'id'                => $id,
+        'name'              => $product->get_name(),
+        'product_type'      => $product_type,
+        'price'             => $product->get_price(),
+        'regular_price'     => $product->get_regular_price(),
+        'sale_price'        => $product->get_sale_price() ?: null,
+        'currency'          => get_woocommerce_currency(),
+        'currency_symbol'   => get_woocommerce_currency_symbol(),
+        'is_in_stock'       => $product->is_in_stock(),
+        'stock_status'      => $product->get_stock_status(),
+        'stock_quantity'    => intval( $product->get_stock_quantity() ),
+        'sku'               => $product->get_sku(),
+        'url'               => get_permalink( $id ),
+        'variations'        => $variations,
+        'attributes'        => $attributes,
+        'registration_open' => $registration_open,
+        'register_url'      => $register_url,
+        'requires_payment'  => $requires_payment,
+        'form_source'       => $form_source,
+        'form_id'           => $gravity_form_id,
+        'form_fields'       => $form_fields,
+        'tab_content'       => $register_content ? $register_content['content'] : [],
     ];
 
     return rest_ensure_response([
@@ -4728,10 +4881,8 @@ function clockwork_get_members_area( $request ) {
                 'location'         => get_post_meta( $product_id, 'WooCommerceEventsLocation', true ) ?: null,
                 'timezone'         => get_post_meta( $product_id, 'WooCommerceEventsTimeZone', true ) ?: null,
             ];
-            $item['_sort_ts'] = intval( get_post_meta( $product_id, 'WooCommerceEventsDateTimestamp', true ) );
         } else {
             $item['meeting']  = null;
-            $item['_sort_ts'] = 0;
         }
 
         // Order summary
@@ -4769,16 +4920,14 @@ function clockwork_get_members_area( $request ) {
         $data[] = $item;
     }
 
-    // Order by meeting date (soonest upcoming first), matching how the meetings
-    // list is ordered elsewhere, instead of whatever order the memberships table
-    // happens to return.
+    // Order by booking date (most recently registered membership first), matching
+    // the "Booking Date" column order on the website's My Account > Members Area
+    // page - not by the meeting's own event date.
     usort( $data, function( $a, $b ) {
-        return $a['_sort_ts'] <=> $b['_sort_ts'];
+        $a_ts = $a['start_date'] ? strtotime( $a['start_date'] ) : 0;
+        $b_ts = $b['start_date'] ? strtotime( $b['start_date'] ) : 0;
+        return $b_ts <=> $a_ts;
     } );
-    $data = array_map( function( $item ) {
-        unset( $item['_sort_ts'] );
-        return $item;
-    }, $data );
 
     return clockwork_success_response( 'Members area retrieved successfully', [
         'memberships' => $data,
@@ -5026,51 +5175,37 @@ function clockwork_get_resources_page( $request ) {
         return clockwork_error_response( 'You do not have access to this resources page.', 403 );
     }
 
-    $content = $post->post_content;
-
-    // --- Extract intro text (strip all HTML, trim whitespace) ---
-    $intro_text = wp_strip_all_tags( $content );
-    $intro_text = preg_replace( '/\s+/', ' ', $intro_text );
-    $intro_text = trim( $intro_text );
-
-    // --- Extract Vimeo videos from cached oembed meta ---
-    $videos      = [];
-    $oembed_meta = get_post_meta( $page_id );
-    foreach ( $oembed_meta as $key => $values ) {
-        if ( 0 !== strpos( $key, '_oembed_' ) || 0 === strpos( $key, '_oembed_time_' ) ) {
-            continue;
-        }
-        $iframe = $values[0] ?? '';
-        if ( empty( $iframe ) || '{{unknown}}' === $iframe ) {
-            continue;
-        }
-        // Extract src URL from iframe
-        if ( preg_match( '/src=["\']([^"\']+)["\']/', $iframe, $src_match ) ) {
-            $embed_url = html_entity_decode( $src_match[1] );
-            // Extract Vimeo video ID
-            preg_match( '/vimeo\.com\/video\/(\d+)/', $embed_url, $id_match );
-            // Extract title from iframe title attribute
-            preg_match( '/title=["\']([^"\']+)["\']/', $iframe, $title_match );
-            $videos[] = [
-                'title'     => isset( $title_match[1] ) ? html_entity_decode( $title_match[1] ) : '',
-                'vimeo_id'  => $id_match[1] ?? null,
-                'embed_url' => $embed_url,
-            ];
-        }
+    // This page is built with Elementor, which renders the front-end entirely
+    // from _elementor_data - post_content is a stale snapshot (e.g. left over
+    // from cloning a previous year's page) that isn't actually displayed, and
+    // can contain whole sections the editor has since hidden (see
+    // clockwork_is_element_hidden_everywhere()). So intro text, form shortcodes,
+    // and images all need to come from the live Elementor tree, the same way
+    // the timetable already does, not from raw post_content.
+    $elementor_data = get_post_meta( $page_id, '_elementor_data', true );
+    if ( is_string( $elementor_data ) ) {
+        $elementor_data = json_decode( $elementor_data, true );
     }
 
-    // --- Extract Gravity Form IDs from shortcode(s) ---
-    $form_ids = [];
-    if ( preg_match_all( '/form_id=["\']?(\d+)["\']?/', $content, $form_matches ) ) {
-        $form_ids = array_map( 'intval', $form_matches[1] );
-        $form_ids = array_unique( $form_ids );
-    }
+    $intro_parts = [];
+    $form_ids    = [];
+    $images      = [];
 
-    // --- Extract image URLs from content ---
-    $images = [];
-    if ( preg_match_all( '/<img[^>]+src=["\']([^"\']+)["\']/', $content, $img_matches ) ) {
-        foreach ( $img_matches[1] as $img_url ) {
-            $images[] = $img_url;
+    if ( is_array( $elementor_data ) ) {
+        clockwork_extract_resources_intro( $elementor_data, $intro_parts, $form_ids, $images );
+        $intro_text = implode( ' ', $intro_parts );
+        $form_ids   = array_values( array_unique( $form_ids ) );
+    } else {
+        // Not an Elementor page - fall back to scraping post_content directly.
+        $content    = $post->post_content;
+        $intro_text = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $content ) ) );
+
+        if ( preg_match_all( '/form_id=["\']?(\d+)["\']?/', $content, $form_matches ) ) {
+            $form_ids = array_values( array_unique( array_map( 'intval', $form_matches[1] ) ) );
+        }
+
+        if ( preg_match_all( '/<img[^>]+src=["\']([^"\']+)["\']/', $content, $img_matches ) ) {
+            $images = $img_matches[1];
         }
     }
 
@@ -5114,9 +5249,13 @@ function clockwork_get_resources_page( $request ) {
         }
     }
 
-    // Fall back to scanning raw post_content for simpler resources pages that
-    // don't use the Day/Session accordion structure at all.
-    if ( empty( $timetable ) ) {
+    // Fall back to scanning raw post_content for a genuinely non-Elementor
+    // resources page. This must NOT run just because the Elementor timetable
+    // came back empty - on an Elementor page that means there's nothing to
+    // show yet, and post_content may still hold stale/hidden leftover content
+    // (e.g. from cloning a previous year's page) that was never meant to display.
+    if ( ! is_array( $elementor_data ) ) {
+        $oembed_meta = get_post_meta( $page_id );
         $decoded_content = html_entity_decode( $content );
 
         // 1. Vimeo iframes embedded in accordions / content
@@ -5207,6 +5346,64 @@ function clockwork_get_resources_page( $request ) {
         'form_ids'   => array_values( $form_ids ),
         'images'     => $images,
     ] );
+}
+
+/**
+ * Recursively collect a resources page's visible intro text, Gravity Form
+ * shortcode IDs, and image URLs from its Elementor tree, skipping anything
+ * hidden via clockwork_is_element_hidden_everywhere() and skipping
+ * nested-accordion subtrees entirely (those are the timetable/recordings
+ * section, handled separately by clockwork_get_resources_timetable()).
+ *
+ * @param array        $elements    Elementor elements
+ * @param array<string> &$intro_parts Reference: collected visible text, in order
+ * @param array<int>   &$form_ids    Reference: collected Gravity Form IDs
+ * @param array<string> &$images     Reference: collected image URLs
+ */
+function clockwork_extract_resources_intro( $elements, &$intro_parts, &$form_ids, &$images ) {
+    if ( ! is_array( $elements ) ) {
+        return;
+    }
+
+    foreach ( $elements as $element ) {
+        if ( ! is_array( $element ) || clockwork_is_element_hidden_everywhere( $element ) ) {
+            continue;
+        }
+
+        $widget_type = $element['widgetType'] ?? '';
+
+        if ( 'nested-accordion' === $widget_type ) {
+            continue;
+        }
+
+        if ( 'heading' === $widget_type ) {
+            $text = trim( wp_strip_all_tags( $element['settings']['title'] ?? '' ) );
+            if ( '' !== $text ) {
+                $intro_parts[] = $text;
+            }
+        } elseif ( 'text-editor' === $widget_type ) {
+            $text = trim( wp_strip_all_tags( $element['settings']['editor'] ?? '' ) );
+            if ( '' !== $text ) {
+                $intro_parts[] = $text;
+            }
+        } elseif ( 'shortcode' === $widget_type ) {
+            $shortcode = $element['settings']['shortcode'] ?? '';
+            if ( preg_match_all( '/form_id=["\']?(\d+)["\']?/', $shortcode, $matches ) ) {
+                foreach ( $matches[1] as $fid ) {
+                    $form_ids[] = intval( $fid );
+                }
+            }
+        } elseif ( 'image' === $widget_type ) {
+            $url = $element['settings']['image']['url'] ?? '';
+            if ( ! empty( $url ) ) {
+                $images[] = $url;
+            }
+        }
+
+        if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+            clockwork_extract_resources_intro( $element['elements'], $intro_parts, $form_ids, $images );
+        }
+    }
 }
 
 
