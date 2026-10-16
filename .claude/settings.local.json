@@ -8,7 +8,8 @@
       "Bash(php -l:*)",
       "Bash(/c/xampp/php/php.exe:*)",
       "WebFetch(domain:localhost)",
-      "Bash(/c/xampp/mysql/bin/mysql.exe:*)"
+      "Bash(/c/xampp/mysql/bin/mysql.exe:*)",
+      "Bash(head -20 find C:xampphtdocsclockWorkMedicalwp-contentpluginseasy-code-manager -name *.php)"
     ]
   }
 }
