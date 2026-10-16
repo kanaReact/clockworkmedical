@@ -303,13 +303,22 @@ function clockwork_create_exhibitor_scans_table() {
 }
 add_action( 'after_switch_theme', 'clockwork_create_exhibitor_scans_table' );
 
-// Also run on admin_init so the table is created even without a theme re-activation
-add_action( 'admin_init', function () {
+/**
+ * Ensure the scans table exists, creating it on demand if it's missing.
+ * Safe/cheap to call repeatedly — dbDelta() only runs when the table is absent.
+ */
+function clockwork_ensure_exhibitor_scans_table() {
     global $wpdb;
-    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$wpdb->prefix}cw_exhibitor_scans'" ) !== $wpdb->prefix . 'cw_exhibitor_scans' ) {
+    $table = $wpdb->prefix . 'cw_exhibitor_scans';
+    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
         clockwork_create_exhibitor_scans_table();
     }
-} );
+}
+
+// admin_init covers normal wp-admin usage; rest_api_init covers the mobile app /
+// exhibitor portal hitting the REST API directly, which never fires admin_init.
+add_action( 'admin_init', 'clockwork_ensure_exhibitor_scans_table' );
+add_action( 'rest_api_init', 'clockwork_ensure_exhibitor_scans_table', 0 );
 
 
 /*******************************************************************************
@@ -6034,10 +6043,37 @@ function clockwork_get_countries( $request ) {
  ******************************************************************************/
 
 /**
+ * Roles that are allowed to use the exhibitor portal endpoints.
+ *
+ * 'cm_exhibitor' is the original web-portal role; 'app-exhibitor' is the role
+ * used by mobile app exhibitor accounts. Both resolve their events the same
+ * way (WooCommerce Memberships plans assigned to the user).
+ *
+ * @return string[]
+ */
+function clockwork_get_exhibitor_roles() {
+    return apply_filters( 'clockwork_exhibitor_roles', [ 'cm_exhibitor', 'app-exhibitor' ] );
+}
+
+/**
+ * Whether the given user holds any exhibitor role.
+ *
+ * @param WP_User|mixed $user
+ * @return bool
+ */
+function clockwork_user_is_exhibitor( $user ) {
+    if ( ! $user instanceof WP_User ) {
+        return false;
+    }
+
+    return (bool) array_intersect( clockwork_get_exhibitor_roles(), (array) $user->roles );
+}
+
+/**
  * GET /clockwork/v1/exhibitor/events
  * Get only the meetings assigned to this exhibitor via WooCommerce Memberships
  * (mirrors the web portal "my_meetings" Elementor query).
- * Requires Bearer token of a cm_exhibitor user.
+ * Requires Bearer token of a cm_exhibitor or app-exhibitor user.
  */
 function clockwork_exhibitor_get_events( $request ) {
     $user = clockwork_get_user_from_token( $request );
@@ -6046,7 +6082,7 @@ function clockwork_exhibitor_get_events( $request ) {
         return clockwork_error_response( $user->get_error_message(), 401 );
     }
 
-    if ( ! in_array( 'cm_exhibitor', (array) $user->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $user ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -6159,7 +6195,7 @@ function clockwork_exhibitor_get_events( $request ) {
 /**
  * GET /clockwork/v1/exhibitor/events/{id}
  * Get single event details for the exhibitor portal.
- * Requires Bearer token of a cm_exhibitor user.
+ * Requires Bearer token of a cm_exhibitor or app-exhibitor user.
  */
 function clockwork_exhibitor_get_event( $request ) {
     $user = clockwork_get_user_from_token( $request );
@@ -6168,7 +6204,7 @@ function clockwork_exhibitor_get_event( $request ) {
         return clockwork_error_response( $user->get_error_message(), 401 );
     }
 
-    if ( ! in_array( 'cm_exhibitor', (array) $user->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $user ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -6274,7 +6310,7 @@ function clockwork_exhibitor_get_scans( $request ) {
     if ( is_wp_error( $exhibitor ) ) {
         return clockwork_error_response( $exhibitor->get_error_message(), 401 );
     }
-    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $exhibitor ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -6339,7 +6375,7 @@ function clockwork_exhibitor_get_scan_detail( $request ) {
     if ( is_wp_error( $exhibitor ) ) {
         return clockwork_error_response( $exhibitor->get_error_message(), 401 );
     }
-    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $exhibitor ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -6445,7 +6481,7 @@ function clockwork_exhibitor_delete_scan( $request ) {
     if ( is_wp_error( $exhibitor ) ) {
         return clockwork_error_response( $exhibitor->get_error_message(), 401 );
     }
-    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $exhibitor ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -6485,7 +6521,7 @@ function clockwork_exhibitor_scan_qr( $request ) {
     if ( is_wp_error( $exhibitor ) ) {
         return clockwork_error_response( $exhibitor->get_error_message(), 401 );
     }
-    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $exhibitor ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -6596,42 +6632,64 @@ function clockwork_exhibitor_scan_qr( $request ) {
         $order_summary = null;
     }
 
-    // Persist scan record when registration is confirmed
-    if ( $has_valid_registration && $attendee ) {
+    // Persist scan record when registration is confirmed — this must not
+    // require a linked WP user account: many attendees check out as guests,
+    // so $attendee can legitimately be null even though $order_found exists.
+    if ( $has_valid_registration ) {
         global $wpdb;
         $table = $wpdb->prefix . 'cw_exhibitor_scans';
         $now   = current_time( 'Y-m-d H:i:s' );
 
-        // Check for existing non-deleted scan: same exhibitor + same event + same attendee
-        $existing_id = $wpdb->get_var( $wpdb->prepare(
-            "SELECT id FROM {$table}
-             WHERE event_id = %d AND exhibitor_id = %d AND attendee_user_id = %d AND is_deleted = 0
-             LIMIT 1",
-            $event_id, $exhibitor->ID, $attendee->ID
-        ) );
+        $attendee_user_id = $attendee ? $attendee->ID : null;
+        $scan_email       = $attendee ? $attendee->user_email : ( $order_found->get_billing_email() ?: $email );
+        $scan_first_name  = $attendee ? $attendee->first_name : $order_found->get_billing_first_name();
+        $scan_last_name   = $attendee ? $attendee->last_name : $order_found->get_billing_last_name();
+        $scan_company     = $order_found->get_billing_company() ?: $company;
+
+        // Check for existing non-deleted scan: same exhibitor + same event,
+        // matched by attendee user id when known, otherwise by order id
+        // (guest checkouts have no stable user id to key off).
+        if ( $attendee_user_id ) {
+            $existing_id = $wpdb->get_var( $wpdb->prepare(
+                "SELECT id FROM {$table}
+                 WHERE event_id = %d AND exhibitor_id = %d AND attendee_user_id = %d AND is_deleted = 0
+                 LIMIT 1",
+                $event_id, $exhibitor->ID, $attendee_user_id
+            ) );
+        } else {
+            $existing_id = $wpdb->get_var( $wpdb->prepare(
+                "SELECT id FROM {$table}
+                 WHERE event_id = %d AND exhibitor_id = %d AND attendee_user_id IS NULL
+                   AND order_id = %d AND is_deleted = 0
+                 LIMIT 1",
+                $event_id, $exhibitor->ID, $order_found->get_id()
+            ) );
+        }
 
         if ( $existing_id ) {
             // Already scanned — just refresh the timestamp
-            $wpdb->update(
+            $update_result = $wpdb->update(
                 $table,
                 [ 'scanned_at' => $now, 'updated_at' => $now ],
                 [ 'id' => $existing_id ],
                 [ '%s', '%s' ],
                 [ '%d' ]
             );
-            $scan_id = (int) $existing_id;
+            $scan_id       = (int) $existing_id;
+            $scan_recorded = ( $update_result !== false );
+            $scan_db_error = $update_result === false ? $wpdb->last_error : '';
         } else {
             // New scan — insert a fresh row
-            $wpdb->insert(
+            $insert_result = $wpdb->insert(
                 $table,
                 [
                     'event_id'            => $event_id,
                     'exhibitor_id'        => $exhibitor->ID,
-                    'attendee_user_id'    => $attendee->ID,
-                    'attendee_email'      => $attendee->user_email,
-                    'attendee_first_name' => $attendee->first_name,
-                    'attendee_last_name'  => $attendee->last_name,
-                    'attendee_company'    => $order_found->get_billing_company() ?: $company,
+                    'attendee_user_id'    => $attendee_user_id,
+                    'attendee_email'      => $scan_email,
+                    'attendee_first_name' => $scan_first_name,
+                    'attendee_last_name'  => $scan_last_name,
+                    'attendee_company'    => $scan_company,
                     'order_id'            => $order_found->get_id(),
                     'note'                => null,
                     'is_deleted'          => 0,
@@ -6640,11 +6698,17 @@ function clockwork_exhibitor_scan_qr( $request ) {
                 ],
                 [ '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%d', '%s', '%s' ]
             );
-            $scan_id = (int) $wpdb->insert_id;
+            $scan_id       = (int) $wpdb->insert_id;
+            $scan_recorded = ( $insert_result !== false && $scan_id > 0 );
+            $scan_db_error = $scan_recorded ? '' : $wpdb->last_error;
         }
 
         $attendee_details['scan_id']       = $scan_id;
-        $attendee_details['scan_recorded'] = true;
+        $attendee_details['scan_recorded'] = $scan_recorded;
+
+        if ( ! $scan_recorded ) {
+            $attendee_details['scan_error'] = $scan_db_error ?: 'Unknown error while saving scan record.';
+        }
     }
 
     return clockwork_success_response( 'QR scan result', [
@@ -6680,7 +6744,7 @@ function clockwork_exhibitor_add_lead_manual( $request ) {
     if ( is_wp_error( $exhibitor ) ) {
         return clockwork_error_response( $exhibitor->get_error_message(), 401 );
     }
-    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $exhibitor ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -6868,7 +6932,7 @@ function clockwork_exhibitor_add_note( $request ) {
     if ( is_wp_error( $exhibitor ) ) {
         return clockwork_error_response( $exhibitor->get_error_message(), 401 );
     }
-    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $exhibitor ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -6931,7 +6995,7 @@ function clockwork_exhibitor_export_scans( $request ) {
     if ( is_wp_error( $exhibitor ) ) {
         return clockwork_error_response( $exhibitor->get_error_message(), 401 );
     }
-    if ( ! in_array( 'cm_exhibitor', (array) $exhibitor->roles, true ) ) {
+    if ( ! clockwork_user_is_exhibitor( $exhibitor ) ) {
         return clockwork_error_response( 'Access denied. Exhibitor account required.', 403 );
     }
 
@@ -7085,7 +7149,7 @@ add_action( 'init', function () {
 
     // Allow token generated with any valid user ID
     $valid = false;
-    $users = get_users( [ 'role' => 'cm_exhibitor', 'fields' => 'ID' ] );
+    $users = get_users( [ 'role__in' => clockwork_get_exhibitor_roles(), 'fields' => 'ID' ] );
     foreach ( $users as $uid ) {
         if ( hash_equals( wp_hash( $file_path . $uid . wp_salt() ), $token ) ) {
             $valid = true;
