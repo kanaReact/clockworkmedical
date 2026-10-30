@@ -4144,7 +4144,7 @@ function clockwork_store_fooevents_tickets( $order, $items, $billing, $user ) {
  */
 function clockwork_set_stripe_key() {
     if ( class_exists( 'WC_Stripe_API' ) ) {
-        WC_Stripe_API::set_secret_key( '434342342sk_test_51Sff4qLFpZ9avaqWgnUbuu76tY3xSXZdvdU6VQMcVpi0RCxLfNBk08z02eqTHoGlx5UihevmrSUaYMIrGVo2Im8V00VMCVeQ2H' );
+        WC_Stripe_API::set_secret_key( '45454545sk_live_519RQJIAbSAAU6br3t28BCgRxnxuPVxnT24HtXELLCvHWsVE2FM6pzXE7MQwBYPgl7rJSOw4vf23VW0klIkp9UADf008OFOahPS' );
     }
 }
 
@@ -6987,8 +6987,14 @@ function clockwork_exhibitor_add_note( $request ) {
 /**
  * GET /clockwork/v1/exhibitor/events/{id}/scans/export
  *
- * Streams an Excel (.xlsx) file of all scan records for the authenticated
- * exhibitor at the given event. Excludes soft-deleted rows.
+ * Streams a CSV file of all scan records for the authenticated exhibitor at
+ * the given event. Excludes soft-deleted rows.
+ *
+ * Deliberately uses plain PHP (fputcsv) instead of an Excel library: this
+ * endpoint previously borrowed PhpSpreadsheet from wp-all-export-pro's
+ * vendor/ folder, which is easy to leave out of a manual deploy/upload and
+ * broke the export with no clean error. CSV has no external dependency, so
+ * it can't break that way again, and opens fine in Excel/Numbers/Sheets.
  */
 function clockwork_exhibitor_export_scans( $request ) {
     $exhibitor = clockwork_get_user_from_token( $request );
@@ -7005,132 +7011,104 @@ function clockwork_exhibitor_export_scans( $request ) {
         return clockwork_error_response( 'Event not found.', 404 );
     }
 
-    // Load PhpSpreadsheet
-    $autoloader = WP_PLUGIN_DIR . '/wp-all-export-pro/vendor/autoload.php';
-    if ( ! file_exists( $autoloader ) ) {
-        return clockwork_error_response( 'Excel library not available. Contact administrator.', 503 );
-    }
-    require_once $autoloader;
+    try {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cw_exhibitor_scans';
 
-    global $wpdb;
-    $table = $wpdb->prefix . 'cw_exhibitor_scans';
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT * FROM {$table}
+             WHERE event_id = %d AND exhibitor_id = %d AND is_deleted = 0
+             ORDER BY scanned_at ASC",
+            $event_id, $exhibitor->ID
+        ), ARRAY_A );
 
-    $rows = $wpdb->get_results( $wpdb->prepare(
-        "SELECT * FROM {$table}
-         WHERE event_id = %d AND exhibitor_id = %d AND is_deleted = 0
-         ORDER BY scanned_at ASC",
-        $event_id, $exhibitor->ID
-    ), ARRAY_A );
+        $event_name     = $product->get_name();
+        $event_date     = get_post_meta( $event_id, 'WooCommerceEventsDate', true ) ?: '';
+        $event_location = get_post_meta( $event_id, 'WooCommerceEventsLocation', true ) ?: '';
+        $exhibitor_name = trim( $exhibitor->first_name . ' ' . $exhibitor->last_name ) ?: $exhibitor->display_name;
 
-    $event_name     = $product->get_name();
-    $event_date     = get_post_meta( $event_id, 'WooCommerceEventsDate', true ) ?: '';
-    $event_location = get_post_meta( $event_id, 'WooCommerceEventsLocation', true ) ?: '';
-    $exhibitor_name = trim( $exhibitor->first_name . ' ' . $exhibitor->last_name ) ?: $exhibitor->display_name;
+        // ── Prepare export directory ─────────────────────────────────────────
+        $upload     = wp_upload_dir();
+        $export_dir = trailingslashit( $upload['basedir'] ) . 'cw-exports/';
 
-    // ── Build spreadsheet ─────────────────────────────────────────────────────
-    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-    $sheet       = $spreadsheet->getActiveSheet();
-    $sheet->setTitle( 'Scanned Attendees' );
-
-    // Event info block (rows 1–5)
-    $info = [
-        1 => [ 'Event:', $event_name ],
-        2 => [ 'Date:', $event_date ],
-        3 => [ 'Location:', $event_location ],
-        4 => [ 'Exhibitor:', $exhibitor_name ],
-        5 => [ 'Exported:', current_time( 'd M Y H:i' ) ],
-    ];
-    foreach ( $info as $r => [ $label, $value ] ) {
-        $sheet->setCellValue( "A{$r}", $label );
-        $sheet->setCellValue( "B{$r}", $value );
-        $sheet->getStyle( "A{$r}" )->getFont()->setBold( true );
-    }
-
-    // Column headers (row 7)
-    $header_row = 7;
-    $headers    = [
-        'A' => 'First Name',
-        'B' => 'Last Name',
-        'C' => 'Email',
-        'D' => 'Notes',
-        'E' => 'Date Scanned',
-        'F' => 'Hospital / Institution',
-    ];
-
-    foreach ( $headers as $col => $label ) {
-        $sheet->setCellValue( "{$col}{$header_row}", $label );
-        $sheet->getStyle( "{$col}{$header_row}" )->getFont()->setBold( true );
-        $sheet->getStyle( "{$col}{$header_row}" )->getFill()
-              ->setFillType( \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID )
-              ->getStartColor()->setRGB( '1F4E79' );
-        $sheet->getStyle( "{$col}{$header_row}" )->getFont()->getColor()->setRGB( 'FFFFFF' );
-    }
-
-    // Data rows
-    $data_row = $header_row + 1;
-    foreach ( $rows as $row ) {
-        $uid      = ! empty( $row['attendee_user_id'] ) ? (int) $row['attendee_user_id'] : null;
-        $hospital = $uid ? ( get_user_meta( $uid, 'hospital_institution', true ) ?: '' ) : '';
-
-        $sheet->setCellValue( "A{$data_row}", $row['attendee_first_name'] );
-        $sheet->setCellValue( "B{$data_row}", $row['attendee_last_name'] );
-        $sheet->setCellValue( "C{$data_row}", $row['attendee_email'] );
-        $sheet->setCellValue( "D{$data_row}", $row['note'] ?? '' );
-        $sheet->setCellValue( "E{$data_row}", $row['scanned_at'] );
-        $sheet->setCellValue( "F{$data_row}", $hospital );
-
-        if ( $data_row % 2 === 0 ) {
-            $sheet->getStyle( "A{$data_row}:F{$data_row}" )->getFill()
-                  ->setFillType( \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID )
-                  ->getStartColor()->setRGB( 'EBF3FB' );
+        if ( ! file_exists( $export_dir ) ) {
+            wp_mkdir_p( $export_dir );
+            // Block direct browser access
+            file_put_contents( $export_dir . '.htaccess', 'deny from all' );
         }
 
-        $data_row++;
-    }
-
-    foreach ( array_keys( $headers ) as $col ) {
-        $sheet->getColumnDimension( $col )->setAutoSize( true );
-    }
-
-    // ── Save to wp-content/uploads/cw-exports/ ────────────────────────────────
-    $upload     = wp_upload_dir();
-    $export_dir = trailingslashit( $upload['basedir'] ) . 'cw-exports/';
-
-    if ( ! file_exists( $export_dir ) ) {
-        wp_mkdir_p( $export_dir );
-        // Block direct browser access
-        file_put_contents( $export_dir . '.htaccess', 'deny from all' );
-    }
-
-    // Clean up exports older than 1 hour
-    foreach ( glob( $export_dir . '*.xlsx' ) as $old_file ) {
-        if ( filemtime( $old_file ) < ( time() - 3600 ) ) {
-            @unlink( $old_file );
+        if ( ! is_writable( $export_dir ) ) {
+            return clockwork_error_response( "Export directory is not writable: {$export_dir}. Contact administrator.", 500 );
         }
+
+        // Clean up exports older than 1 hour
+        foreach ( glob( $export_dir . '*.csv' ) as $old_file ) {
+            if ( filemtime( $old_file ) < ( time() - 3600 ) ) {
+                @unlink( $old_file );
+            }
+        }
+
+        $filename  = sanitize_file_name(
+            'scans-' . sanitize_title( $event_name ) . '-' . $exhibitor->ID . '-' . time() . '.csv'
+        );
+        $file_path = $export_dir . $filename;
+
+        $fh = fopen( $file_path, 'w' );
+        if ( ! $fh ) {
+            return clockwork_error_response( "Could not create export file at {$file_path}. Contact administrator.", 500 );
+        }
+
+        // Excel needs a UTF-8 BOM to render accented characters correctly.
+        fwrite( $fh, "\xEF\xBB\xBF" );
+
+        // Event info block
+        fputcsv( $fh, [ 'Event:', $event_name ] );
+        fputcsv( $fh, [ 'Date:', $event_date ] );
+        fputcsv( $fh, [ 'Location:', $event_location ] );
+        fputcsv( $fh, [ 'Exhibitor:', $exhibitor_name ] );
+        fputcsv( $fh, [ 'Exported:', current_time( 'd M Y H:i' ) ] );
+        fputcsv( $fh, [] ); // blank separator row
+
+        // Column headers
+        fputcsv( $fh, [ 'First Name', 'Last Name', 'Email', 'Notes', 'Date Scanned', 'Hospital / Institution' ] );
+
+        // Data rows
+        foreach ( $rows as $row ) {
+            $uid      = ! empty( $row['attendee_user_id'] ) ? (int) $row['attendee_user_id'] : null;
+            $hospital = $uid ? ( get_user_meta( $uid, 'hospital_institution', true ) ?: '' ) : '';
+
+            fputcsv( $fh, [
+                $row['attendee_first_name'],
+                $row['attendee_last_name'],
+                $row['attendee_email'],
+                $row['note'] ?? '',
+                $row['scanned_at'],
+                $hospital,
+            ] );
+        }
+
+        fclose( $fh );
+
+        // Generate a signed, time-limited download token
+        $token        = wp_hash( $file_path . $exhibitor->ID . wp_salt() );
+        $download_url = add_query_arg( [
+            'cw_export' => 'scan',
+            'file'      => base64_encode( $filename ),
+            'token'     => $token,
+        ], site_url( '/' ) );
+
+        return clockwork_success_response( 'Export ready', [
+            'download_url' => $download_url,
+            'filename'     => $filename,
+            'total_rows'   => count( $rows ),
+            'expires_in'   => '1 hour',
+        ] );
+    } catch ( \Throwable $e ) {
+        return clockwork_error_response(
+            'Export failed: ' . $e->getMessage(),
+            500
+        );
     }
-
-    $filename  = sanitize_file_name(
-        'scans-' . sanitize_title( $event_name ) . '-' . $exhibitor->ID . '-' . time() . '.xlsx'
-    );
-    $file_path = $export_dir . $filename;
-
-    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx( $spreadsheet );
-    $writer->save( $file_path );
-
-    // Generate a signed, time-limited download token
-    $token      = wp_hash( $file_path . $exhibitor->ID . wp_salt() );
-    $download_url = add_query_arg( [
-        'cw_export'  => 'scan',
-        'file'       => base64_encode( $filename ),
-        'token'      => $token,
-    ], site_url( '/' ) );
-
-    return clockwork_success_response( 'Export ready', [
-        'download_url' => $download_url,
-        'filename'     => $filename,
-        'total_rows'   => count( $rows ),
-        'expires_in'   => '1 hour',
-    ] );
 }
 
 // ── Serve the exported file when the download URL is hit ─────────────────────
@@ -7161,7 +7139,7 @@ add_action( 'init', function () {
         wp_die( 'Invalid or expired download link.', 403 );
     }
 
-    header( 'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' );
+    header( 'Content-Type: text/csv; charset=UTF-8' );
     header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
     header( 'Content-Length: ' . filesize( $file_path ) );
     header( 'Cache-Control: max-age=0' );
