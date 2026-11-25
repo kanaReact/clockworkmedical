@@ -4231,6 +4231,10 @@ function clockwork_create_stripe_payment_intent( $order ) {
  * Returns client_secret for the mobile app to complete payment via Stripe PaymentSheet.
  */
 function clockwork_place_order( $request ) {
+    $cw_log = function ( $label, $data = null ) {
+        error_log( 'ClockWork place-order: ' . $label . ( null !== $data ? ' | ' . wp_json_encode( $data ) : '' ) );
+    };
+
     // Step 1: Authenticate
     $user = clockwork_get_user_from_token( $request );
     if ( is_wp_error( $user ) ) {
